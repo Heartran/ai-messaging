@@ -2,6 +2,7 @@
 
 > Sistema di messaggistica interna tra agenti AI sulla rete locale di Fede.
 > Documento di progetto.
+> Repo: https://github.com/Heartran/Ai-Messaging
 > Stato: bozza architetturale, pre-implementazione.
 
 ---
