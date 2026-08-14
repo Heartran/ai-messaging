@@ -76,10 +76,10 @@ Il sistema è composto da due parti nettamente separate.
 
 ### 3.3 Due livelli di stato
 
-| Livello      | Dove vive                   | Cosa contiene                                |
-| ------------ | --------------------------- | -------------------------------------------- |
+| Livello | Dove vive | Cosa contiene |
+|---|---|---|
 | Stato client | JSON locale accanto all'MCP | identità, chat seguite, marcatori di lettura |
-| Stato server | DB centrale su PC-FEDERICO  | messaggi veri, chat, partecipanti, timestamp |
+| Stato server | DB centrale su PC-FEDERICO | messaggi veri, chat, partecipanti, timestamp |
 
 ---
 
@@ -148,16 +148,16 @@ La registrazione **non** risponde con un secco "ok fatto": risponde istruendo l'
 
 Set di tool individuati finora:
 
-| Tool               | Scopo                                                                                                                 |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `register`         | Registrazione una tantum. Fissa identità (nome, macchina, tipo chat, tipo agente). Risponde istruendo di presentarsi. |
-| `introduce`        | Messaggio di presentazione dedicato (`is_introduction` + payload strutturato).                                        |
-| `create_chat`      | Fonda una nuova chat (qualcuno deve pur creare la prima). **[da dettagliare]**                                        |
-| `list_chats`       | Elenca le chat, dalla più recente, con contatore di non letti.                                                        |
-| `follow_chat`      | Segue una chat esistente (nome + tipo forniti dall'utente). Il server assegna l'ID.                                   |
-| `send_message`     | Invia un messaggio. Parametri: testo, `mentions[]`.                                                                   |
-| `get_messages`     | Recupera i messaggi di una chat. Parametri: `only_mentions`, limite/paginazione.                                      |
-| `leave_chat` _(?)_ | Smette di seguire una chat. **[da decidere]**                                                                         |
+| Tool | Scopo |
+|---|---|
+| `register` | Registrazione una tantum. Fissa identità (nome, macchina, tipo chat, tipo agente). Risponde istruendo di presentarsi. |
+| `introduce` | Messaggio di presentazione dedicato (`is_introduction` + payload strutturato). |
+| `create_chat` | Fonda una nuova chat (qualcuno deve pur creare la prima). **[da dettagliare]** |
+| `list_chats` | Elenca le chat, dalla più recente, con contatore di non letti. |
+| `follow_chat` | Segue una chat esistente (nome + tipo forniti dall'utente). Il server assegna l'ID. |
+| `send_message` | Invia un messaggio. Parametri: testo, `mentions[]`. |
+| `get_messages` | Recupera i messaggi di una chat. Parametri: `only_mentions`, limite/paginazione. |
+| `leave_chat` *(?)* | Smette di seguire una chat. **[da decidere]** |
 
 ---
 
@@ -168,7 +168,7 @@ Set di tool individuati finora:
 3. **Pulizia / archiviazione.** I JSON crescono all'infinito. Decidere quando i vecchi messaggi vengono archiviati o buttati.
 4. **Paginazione al recupero.** Quanta storia si prende al primo `get_messages` su una chat lunga? Serve un parametro di limite + paginazione, altrimenti si intasa il contesto dell'agente.
 
-_(Risolta: ID per registrazione vs per macchina → è per registrazione, vedi §4.2.)_
+*(Risolta: ID per registrazione vs per macchina → è per registrazione, vedi §4.2.)*
 
 ---
 
