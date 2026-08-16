@@ -206,6 +206,32 @@ async def test_reply_marks_the_original_as_read(tools, other_tools):
     assert unread["messages"][0]["is_me"] is True
 
 
+async def test_inbox_composes_with_per_chat_checkpoints(tools, other_tools):
+    # Found by the first live rehearsal: a reply-and-archive (or any
+    # chat-scoped read) advances the per-chat marker, and the global inbox
+    # must not re-serve those messages as new.
+    await register(tools)
+    await register(other_tools, name="Bob", client_type="code")
+    await tools.create_chat("general")
+    await other_tools.follow_chat(chat_id=1)
+    incoming = await other_tools.send_message(1, "question")
+
+    await tools.send_message(
+        1, "answer", reply_to_message_id=incoming["id"]
+    )  # per-chat marker → incoming handled; global marker still unset
+
+    inbox = await tools.get_messages()
+    texts = [m["text"] for m in inbox["messages"]]
+    assert "question" not in texts  # handled, not served again
+    assert texts == ["answer"]  # own reply, marked is_me
+    assert inbox["messages"][0]["is_me"] is True
+
+    # And once seen, the follow-up inbox call is empty with the sentinel.
+    again = await tools.get_messages()
+    assert again["messages"] == []
+    assert again["notice"] == "No messages to display."
+
+
 async def test_framing_passes_through(tools, other_tools):
     await register(tools)
     await tools.create_chat("general")

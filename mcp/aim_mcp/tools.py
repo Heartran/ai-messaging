@@ -260,11 +260,29 @@ class AimTools:
             message["is_me"] = message["sender"]["id"] == pid
 
         if checkpoint_flow and response["messages"]:
-            # ...→ present → rewrite the checkpoint. Anchored to server
+            raw = response["messages"]
+            fresh = raw
+            if chat_id is None:
+                # The inbox composes with the per-chat markers: anything a
+                # chat-scoped read (or a reply-and-archive) already consumed
+                # must not be served as new again. Filter with the markers
+                # as they are BEFORE this call advances them.
+                def already_read(message: dict[str, Any]) -> bool:
+                    followed = self.config.followed_chats.get(message["chat_id"])
+                    return (
+                        followed is not None
+                        and followed.last_read_message_id is not None
+                        and message["id"] <= followed.last_read_message_id
+                    )
+
+                fresh = [m for m in raw if not already_read(m)]
+
+            # ...→ present → rewrite the checkpoint (§8.1). Checkpoints
+            # advance over everything the server returned — it was all
+            # either presented now or read before — and anchor to server
             # timestamps/IDs, never to the local clock (§3.1).
-            newest = response["messages"][0]  # DESC: first is newest
             advanced: dict[int, int] = {}
-            for message in response["messages"]:
+            for message in raw:
                 if self.config.advance_checkpoint(
                     message["chat_id"], message["id"], message["created_at"]
                 ):
@@ -272,8 +290,12 @@ class AimTools:
                         advanced.get(message["chat_id"], 0), message["id"]
                     )
             if chat_id is None:
-                self.config.last_checked_at = newest["created_at"]
+                self.config.last_checked_at = raw[0]["created_at"]  # newest
             self.config.save()
+            response["messages"] = fresh
+            response["count"] = len(fresh)
+            if not fresh:
+                response["notice"] = "No messages to display."
             if advanced:
                 response["checkpoints_advanced"] = advanced
         elif mentions_flow and response["messages"]:
