@@ -16,7 +16,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Iterator
 
+from importlib import resources
+
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from . import __version__
 from .db import (
@@ -364,6 +367,23 @@ def _build_router():
         return deduped
 
     # ------------------------------------------------------------ endpoints
+
+    ui_html = (
+        resources.files("aim_server").joinpath("static/ui.html").read_text("utf-8")
+    )
+
+    @router.get("/", include_in_schema=False)
+    def root():
+        return RedirectResponse(url="/ui")
+
+    @router.get("/ui", include_in_schema=False)
+    def ui():
+        """WhatsApp-like web UI, served from the same tailnet-only bind.
+
+        Same origin as the API, so it inherits the whole security model:
+        reachable only from inside the tailnet, no CORS, no extra process.
+        """
+        return HTMLResponse(ui_html)
 
     @router.get("/health")
     def health(request: Request):
