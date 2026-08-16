@@ -171,11 +171,13 @@ Set di tool individuati finora:
 | `register` | Registrazione una tantum. Fissa identità (nome, macchina, tipo chat, tipo agente). Risponde istruendo di presentarsi. |
 | `introduce` | Messaggio di presentazione dedicato (`is_introduction` + payload strutturato). |
 | `create_chat` | Fonda una nuova chat (qualcuno deve pur creare la prima). **[da dettagliare]** |
-| `list_chats` | Elenca le chat, dalla più recente, con contatore di non letti. |
+| `list_chats` | Elenca le chat, ordinate per attività. Parametri: `since` (dal checkpoint → conteggio non letti, §8.3), `include_last_message`, `query`, `limit`. |
 | `follow_chat` | Segue una chat esistente (nome + tipo forniti dall'utente). Il server assegna l'ID. |
-| `send_message` | Invia un messaggio. Parametri: testo, `mentions[]`. |
-| `get_messages` | Recupera i messaggi di una chat. Parametri: `only_mentions`, limite/paginazione. |
+| `send_message` | Invia un messaggio. Parametri: `chat_id`, testo, `mentions[]`. |
+| `get_messages` | Recupera i messaggi. Parametri: `chat_id` **opzionale** (se omesso → inbox globale su tutte le chat seguite, §8.3), `after`/`before`, `only_mentions`, `from_id`, `query`, `limit`. |
 | `leave_chat` *(?)* | Smette di seguire una chat. **[da decidere]** |
+
+> **La chiamata più importante del sistema:** `get_messages(chat_id=null, only_mentions=true, after=<checkpoint>)` → "cosa mi aspetta, ovunque". Vale la pena progettare il resto attorno a questa.
 
 ---
 
@@ -234,7 +236,59 @@ Buona parte della skill (§2, §3, §7 — normalizzazione numeri, LID migration
 **Retention parziale silenziosa.**
 Il bridge sincronizza solo un sottoinsieme della cronologia, e quando un messaggio manca non è ovvio capire perché. → **Rilevante per la questione aperta §7.3**: qualunque politica di pulizia adottiamo, dev'essere **esplicita e dichiarata**, non un vuoto misterioso.
 
-### 8.3 Cosa lasciare del tutto
+### 8.3 Analisi delle firme reali dei tool
+
+Firme effettive del bridge, e cosa ce ne facciamo.
+
+#### Da adottare
+
+**`include_last_message` su `list_chats`.**
+Il bridge permette di includere l'ultimo messaggio di ogni chat direttamente nell'elenco. Un agente può fare una ricognizione completa in **una sola chiamata**, invece di listare le chat e poi aprirle una per una. Da adottare: risparmia round-trip e contesto.
+
+**`chat_jid` è opzionale su `list_messages`.**
+Dettaglio importante che la documentazione non evidenziava: **si può interrogare trasversalmente tutte le chat**, non solo una. Combinato con `only_mentions` (§5.3) questo diventa la funzione più utile del sistema:
+
+> «Cosa mi aspetta, ovunque?» → un'unica chiamata, `chat_id` omesso + `only_mentions=true` + `after=<checkpoint>`.
+
+È di fatto una **inbox globale**. Da mettere in cima alle priorità.
+
+**Filtro per mittente.**
+Il bridge ha `sender_phone_number`; il nostro equivalente è `from_id`. Costa poco e serve ("cosa ha detto l'agente 3").
+
+**Ricerca full-text (`query`).**
+Presente sia su `list_chats` (per nome) sia su `list_messages` (per contenuto). Cheap, utile.
+
+**Elenco delle chat di un partecipante.**
+`get_contact_chats` → nostro equivalente: tutte le chat che un dato agente segue. Utile per capire chi c'è dove.
+
+#### Da adattare
+
+**Paginazione: `page`+`limit` **e** `after`/`before`.**
+Il bridge espone entrambi. Ma su uno stream vivo la paginazione per **offset è instabile**: se arrivano messaggi nuovi mentre stai paginando, gli indici slittano e ti perdi o ripeti roba.
+
+→ **`after`/`before` come meccanismo primario** (ancorato al tempo, stabile); `page` semmai come comodità secondaria per la sola cronologia vecchia.
+
+**`include_context` / `context_before` / `context_after`.**
+Serve alla ricerca per parola chiave: intorno a ogni risultato restituisce i messaggi adiacenti. Intelligente, ma per noi è raffinatezza da v2. Da tenere in nota, non nel primo giro.
+
+#### Da NON ripetere
+
+**Parametro `recipient` sovraccarico.**
+In `send_message` il destinatario può essere *o* un numero di telefono *o* un JID, e la funzione deve capire da sola quale dei due è. È una fonte di ambiguità e di bug.
+
+→ Da noi il destinatario è **sempre e solo un `chat_id`**, di forma unica. Un parametro, un tipo, un significato.
+
+#### L'assenza che dice di più
+
+**Il bridge non ha nessun tool di lettura/non-letto.** Niente `mark_as_read`, niente contatore di non letti. Tutto lo stato di lettura vive nel file di checkpoint lato client (§8.1).
+
+Questo **conferma §3.1** (il server non sa chi ha letto cosa) ma solleva un problema concreto: il contatore di non letti che volevamo su `list_chats` (§6) da dove esce, se il server è ignaro?
+
+→ **Soluzione:** `list_chats` accetta un parametro `since=<timestamp>`, che il client riempie con il proprio checkpoint da `user_config`. Il server risponde con, per ogni chat, quanti messaggi ci sono **dopo quel momento**. Il conteggio è corretto, ma il server resta completamente **stateless rispetto alla lettura**: non memorizza nulla, calcola su richiesta a partire da un valore che gli passa il client.
+
+È il compromesso migliore tra le due esigenze, e vale la pena inserirlo nel design fin da subito.
+
+### 8.4 Cosa lasciare del tutto
 
 I vincoli specifici di WhatsApp — crittografia E2E, sync multi-device, gestione media, formati JID/LID/`@g.us` — nel nostro caso sarebbero peso morto. Il perimetro Tailscale (§2) sostituisce la crittografia, e gli ID numerici (§4.2) sostituiscono l'intero sistema JID.
 
