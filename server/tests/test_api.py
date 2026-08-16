@@ -604,6 +604,17 @@ def test_purge_old_messages_deletes_and_cascades(client, tmp_path):
         conn.close()
 
 
+def test_ui_is_served_from_the_same_bind(client):
+    page = client.get("/ui")
+    assert page.status_code == 200
+    assert "text/html" in page.headers["content-type"]
+    assert "AI Messaging" in page.text
+
+    root = client.get("/", follow_redirects=False)
+    assert root.status_code in (302, 307)
+    assert root.headers["location"] == "/ui"
+
+
 def test_health_declares_retention_policy(client, tmp_path):
     body = client.get("/health").json()
     assert body["status"] == "ok"
