@@ -174,6 +174,15 @@ cd server && pip install -e .[dev] && python -m pytest   # server suite
 cd mcp && pip install -e .[dev] && python -m pytest      # client suite
 ```
 
+**After updating the repo, reinstall.** A plain `pip install .` copies the
+code into site-packages: a later `git pull` updates the checkout, *not*
+what runs. Either install editable (`pip install -e .`) or re-run
+`pip install --upgrade ./server ./mcp` after every update, then restart
+the server. A client newer than the server fails loudly with an
+"older build than this client" error, and `GET /health` reports the
+running server version — compare it with `server/pyproject.toml` when
+in doubt.
+
 ## Project status
 
 - [x] Central server (`server/`)

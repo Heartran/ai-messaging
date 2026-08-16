@@ -10,6 +10,10 @@ from typing import Any
 
 import httpx
 
+# Oldest central-server API this client can talk to (the global inbox and
+# the list_chats since/include_last_message parameters arrived in 0.2.0).
+MIN_SERVER_VERSION = "0.2.0"
+
 
 class AimServerError(Exception):
     """A server call failed; the message is agent-actionable."""
@@ -62,6 +66,19 @@ class AimClient:
                 detail = response.json().get("detail")
             except ValueError:
                 detail = response.text
+            if response.status_code == 404 and detail == "Not Found":
+                # The server's own 404s always carry a speaking detail
+                # ("Unknown chat ID 3. …"); a bare "Not Found" means the
+                # ROUTE does not exist — a server older than this client.
+                raise AimServerError(
+                    f"The server at {self.base_url} does not know the "
+                    f"endpoint {path!r} at all: it is running an older "
+                    "build than this client. On the server machine, update "
+                    "and reinstall, then restart it: git pull && pip "
+                    "install --upgrade ./server && python -m aim_server. "
+                    f"This client needs aim-server >= {MIN_SERVER_VERSION}; "
+                    "GET /health reports the running version."
+                )
             raise AimServerError(
                 f"Server refused the call ({response.status_code}): {detail}"
             )

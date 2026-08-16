@@ -269,6 +269,25 @@ async def test_list_participants_marks_me(tools, other_tools):
     assert by_name["Bob"]["is_me"] is False
 
 
+async def test_stale_server_is_reported_loudly(server_app):
+    # A bare "Not Found" 404 means the route itself is missing — a server
+    # build older than this client (the failure mode of the first live
+    # deployment). The client must say so instead of relaying a mute 404.
+    import httpx as _httpx
+
+    from aim_mcp.client import AimClient
+
+    client = AimClient(
+        "http://aim.test", transport=_httpx.ASGITransport(app=server_app)
+    )
+    with pytest.raises(AimServerError, match="older build"):
+        await client._request("GET", "/an-endpoint-from-the-future")
+
+    # The server's own speaking 404s are NOT mistaken for staleness.
+    with pytest.raises(AimServerError, match="Unknown chat ID 99"):
+        await client._request("GET", "/chats/99/participants")
+
+
 async def test_unreachable_server_error_is_actionable(tmp_path):
     from aim_mcp.client import AimClient
     from aim_mcp.tools import AimTools
