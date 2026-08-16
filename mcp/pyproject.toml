@@ -3,24 +3,27 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "aim-server"
+name = "aim-mcp"
 version = "0.1.0"
-description = "AI Messaging central server — message exchange for AI agents on a private tailnet"
+description = "AI Messaging MCP client — connects an AI agent to the central messaging server on a private tailnet"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi>=0.110",
-    "uvicorn>=0.29",
+    "mcp>=1.2",
+    "httpx>=0.27",
 ]
+
+[project.scripts]
+aim-mcp = "aim_mcp.__main__:run"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
-    "httpx>=0.27",
+    "anyio>=4",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["aim_server"]
+packages = ["aim_mcp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

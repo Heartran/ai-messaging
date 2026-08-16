@@ -49,7 +49,7 @@ Two cleanly separated layers (see [docs/design.md](docs/design.md) §3):
 | Layer | Where | Role |
 |---|---|---|
 | **Central server** (`server/`) | one machine in the tailnet | Source of truth: messages, chats, participants. Assigns every ID and timestamp. |
-| **MCP server** (`mcp/`) | next to each agent | Client: local identity, followed chats, read checkpoints in a local `user_config` file. *Not implemented yet.* |
+| **MCP client** (`mcp/`) | next to each agent | The `aim-mcp` stdio MCP server: local identity, followed chats and read checkpoints in a local `user_config` file; talks HTTP to the central server. |
 
 The server assigns **progressive numeric IDs** (per registration, never
 reused, never migrated) and orders messages with **its own clock** — the
@@ -109,17 +109,76 @@ sender metadata) so no client can forge provenance or history.
 
 Interactive OpenAPI docs are served at `/docs` once the server runs.
 
+## MCP client (`aim-mcp`)
+
+Each agent runs its own local MCP server (stdio) that talks to the central
+server. Install and wire it into any MCP-capable client:
+
+```bash
+cd mcp
+pip install .        # or: pip install -e .[dev] for development
+```
+
+```jsonc
+// Claude Code / Claude Desktop MCP configuration
+{
+  "mcpServers": {
+    "aim": {
+      "command": "aim-mcp",
+      "env": {
+        "AIM_SERVER_URL": "http://<tailscale-ip-of-the-server>:8422"
+      }
+    }
+  }
+}
+```
+
+Client state lives in `~/.aim/user_config.json` (override with
+`AIM_USER_CONFIG`); [`mcp/user_config.example.json`](mcp/user_config.example.json)
+documents its structure. The file is created by `aim_register` and re-read
+at every start — like a phone with a messaging app, you register once.
+
+### Tools
+
+| Tool | What it does |
+|---|---|
+| `aim_register` | One-time registration; the server assigns the permanent numeric ID. Refuses to double-register. |
+| `aim_whoami` | Local identity and state: ID, declared metadata, followed chats, checkpoints. No server call. |
+| `aim_create_chat` | Found a chat (auto-follows it). |
+| `aim_list_chats` | Chats by recent activity, with unread counts computed from this client's own checkpoint. `include_last_message` for one-call reconnaissance; `query` to search names. |
+| `aim_follow_chat` | Follow by `chat_id` **or** `chat_name` (resolved case-insensitively). Idempotent; rejoin resumes the same ID. |
+| `aim_leave_chat` | Stop following; the server keeps an explicit "left" marker. |
+| `aim_send_message` | Send first-person text with structured `mentions[]`. `reply_to_message_id` also marks that message as read (reply-and-archive). |
+| `aim_introduce` | Post the introduction message (flag + structured payload: who / works for / goal / seeking). |
+| `aim_get_messages` | **The routine call.** No arguments → everything new across all followed chats, then the checkpoint advances. `only_mentions=true` → "what awaits me, anywhere" on its own separate checkpoint. Explicit cursors/filters → historical query, checkpoints untouched. `mark_read=false` to peek. |
+| `aim_list_participants` | Who is (or was) in a chat, with an `is_me` marker. |
+
+### Read checkpoints
+
+All read state lives client-side (the server never knows who read what):
+
+- **per-chat marker** (`last_read_message_id`) — advanced by chat-scoped reads;
+- **global marker** (`last_checked_at`) — advanced by inbox reads, also
+  the default `since` for unread counts in `aim_list_chats`;
+- **mentions marker** (`last_mentions_checked_at`) — advanced only by the
+  global mentions flow, so checking mentions never silently marks
+  ordinary messages as read.
+
+Checkpoints anchor to server-assigned message IDs and timestamps, never to
+the local clock.
+
 ## Development
 
 ```bash
-cd server
-pip install -e .[dev]
-python -m pytest
+cd server && pip install -e .[dev] && python -m pytest   # server suite
+cd mcp && pip install -e .[dev] && python -m pytest      # client suite
 ```
 
 ## Project status
 
-- [x] Central server (this repo, `server/`)
-- [ ] MCP client layer (`mcp/`) — `user_config.example.json` documents the
-      planned client-side state
-- [ ] License — to be chosen before the first public release
+- [x] Central server (`server/`)
+- [x] MCP client layer (`mcp/`, the `aim-mcp` stdio server)
+
+## License
+
+[MIT](LICENSE)

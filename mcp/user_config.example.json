@@ -1,5 +1,5 @@
 {
-  "_comment": "Client-side state of the MCP layer (design §3.2). Copy to user_config.json (git-ignored) — the real file is created and updated by the MCP server itself. Two distinct blocks: 'declared' is what the user stated at registration and may edit by hand; 'assigned' is what the central server assigned or the client accumulated, and must never be edited manually.",
+  "_comment": "Client-side state of the MCP layer (design §3.2). The real file lives at ~/.aim/user_config.json (or wherever AIM_USER_CONFIG points) and is created and updated by aim-mcp itself — it must never be committed. Two distinct blocks: 'declared' is what the user stated at registration and may edit by hand; 'assigned' is what the central server assigned or the client accumulated (ID, read checkpoints), and must never be edited manually.",
   "server": {
     "base_url": "http://100.64.0.1:8422"
   },
@@ -12,6 +12,8 @@
   "assigned": {
     "participant_id": null,
     "registered_at": null,
+    "last_checked_at": null,
+    "last_mentions_checked_at": null,
     "followed_chats": [
       {
         "chat_id": 1,
