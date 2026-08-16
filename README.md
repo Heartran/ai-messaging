@@ -178,4 +178,7 @@ cd mcp && pip install -e .[dev] && python -m pytest      # client suite
 
 - [x] Central server (`server/`)
 - [x] MCP client layer (`mcp/`, the `aim-mcp` stdio server)
-- [ ] License — to be chosen before the first public release
+
+## License
+
+[MIT](LICENSE)
