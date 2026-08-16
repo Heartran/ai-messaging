@@ -224,6 +224,121 @@ def _build_router():
             "created_at": created_at,
         }
 
+    def escape_like(term: str) -> str:
+        """Escape a search term for a LIKE pattern with ESCAPE '\\'."""
+        return (
+            term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
+
+    def parse_bound(name: str, raw: str | None) -> str | None:
+        if raw is None:
+            return None
+        try:
+            return parse_client_timestamp(raw)
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{name}={raw!r} is not a valid ISO 8601 timestamp.",
+            ) from None
+
+    def query_messages(
+        conn: sqlite3.Connection,
+        *,
+        scope_sql: str,
+        scope_params: tuple,
+        after_ts: str | None,
+        before_ts: str | None,
+        after_id: int | None,
+        before_id: int | None,
+        only_mentions: bool,
+        mention_pid: int | None,
+        from_id: int | None,
+        text_query: str | None,
+        limit: int,
+    ) -> list[dict]:
+        """Shared retrieval: per-chat and global-inbox reads differ only in scope."""
+        query = [
+            """
+            SELECT m.id, m.chat_id, c.name AS chat_name, m.sender_id, m.text,
+                   m.is_introduction, m.intro_payload, m.created_at,
+                   p.name AS sender_name, p.machine AS sender_machine,
+                   p.client_type AS sender_client_type,
+                   p.agent_type AS sender_agent_type
+            FROM messages m
+            JOIN participants p ON p.id = m.sender_id
+            JOIN chats c ON c.id = m.chat_id
+            WHERE """
+            + scope_sql
+        ]
+        params: list = list(scope_params)
+        if after_ts is not None:
+            query.append("AND m.created_at > ?")
+            params.append(after_ts)
+        if before_ts is not None:
+            query.append("AND m.created_at < ?")
+            params.append(before_ts)
+        if after_id is not None:
+            query.append("AND m.id > ?")
+            params.append(after_id)
+        if before_id is not None:
+            query.append("AND m.id < ?")
+            params.append(before_id)
+        if from_id is not None:
+            query.append("AND m.sender_id = ?")
+            params.append(from_id)
+        if text_query is not None:
+            query.append("AND m.text LIKE ? ESCAPE '\\'")
+            params.append(f"%{escape_like(text_query)}%")
+        if only_mentions:
+            query.append(
+                "AND EXISTS (SELECT 1 FROM mentions mn "
+                "WHERE mn.message_id = m.id AND mn.participant_id = ?)"
+            )
+            params.append(mention_pid)
+        # DESC: the most recent message first (§8.1).
+        query.append("ORDER BY m.created_at DESC, m.id DESC LIMIT ?")
+        params.append(limit)
+        rows = conn.execute("\n".join(query), params).fetchall()
+
+        mentions_by_message: dict[int, list[int]] = {}
+        if rows:
+            ids = [row["id"] for row in rows]
+            placeholders = ",".join("?" * len(ids))
+            for mention in conn.execute(
+                f"SELECT message_id, participant_id FROM mentions "
+                f"WHERE message_id IN ({placeholders}) "
+                f"ORDER BY participant_id",
+                ids,
+            ).fetchall():
+                mentions_by_message.setdefault(mention["message_id"], []).append(
+                    mention["participant_id"]
+                )
+
+        return [
+            {
+                "id": row["id"],
+                "chat_id": row["chat_id"],
+                "chat_name": row["chat_name"],
+                "sender": {
+                    "id": row["sender_id"],
+                    "name": row["sender_name"],
+                    "machine": row["sender_machine"],
+                    "client_type": row["sender_client_type"],
+                    "agent_type": row["sender_agent_type"],
+                },
+                "text": row["text"],
+                "mentions": mentions_by_message.get(row["id"], []),
+                "is_introduction": bool(row["is_introduction"]),
+                "intro_payload": (
+                    json.loads(row["intro_payload"])
+                    if row["intro_payload"] is not None
+                    else None
+                ),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
     def validate_mentions(
         conn: sqlite3.Connection, chat_id: int, mentions: list[int]
     ) -> list[int]:
@@ -331,11 +446,31 @@ def _build_router():
     @router.get("/chats")
     def list_chats(
         participant_id: int | None = Query(default=None),
+        since: str | None = Query(
+            default=None,
+            description="ISO 8601 instant — the client's read checkpoint. "
+            "Adds a messages_since count per chat (messages strictly newer). "
+            "The server stays stateless about reads: it computes on request "
+            "from a value the client supplies (§8.3).",
+        ),
+        include_last_message: bool = Query(
+            default=False,
+            description="Include each chat's most recent message, so one "
+            "call gives a full reconnaissance (§8.3).",
+        ),
+        query: str | None = Query(
+            default=None,
+            min_length=1,
+            max_length=200,
+            description="Only chats whose name contains this substring "
+            "(case-insensitive).",
+        ),
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
         conn: sqlite3.Connection = Depends(_get_conn),
     ):
-        rows = conn.execute(
+        since_ts = parse_bound("since", since)
+        sql = [
             """
             SELECT c.id, c.name, c.description, c.created_by, c.created_at,
                    (SELECT COUNT(*) FROM chat_members m
@@ -345,12 +480,48 @@ def _build_router():
                        AS message_count,
                    (SELECT MAX(msg.created_at) FROM messages msg
                      WHERE msg.chat_id = c.id) AS last_message_at
-            FROM chats c
-            ORDER BY COALESCE(last_message_at, c.created_at) DESC, c.id DESC
-            LIMIT ? OFFSET ?
-            """,
-            (limit, offset),
-        ).fetchall()
+            """
+        ]
+        params: list = []
+        if since_ts is not None:
+            sql.append(
+                ", (SELECT COUNT(*) FROM messages msg WHERE msg.chat_id = c.id "
+                "AND msg.created_at > ?) AS messages_since"
+            )
+            params.append(since_ts)
+        sql.append("FROM chats c")
+        if query is not None:
+            sql.append("WHERE c.name LIKE ? ESCAPE '\\'")
+            params.append(f"%{escape_like(query)}%")
+        sql.append(
+            "ORDER BY COALESCE(last_message_at, c.created_at) DESC, c.id DESC "
+            "LIMIT ? OFFSET ?"
+        )
+        params.extend([limit, offset])
+        rows = conn.execute("\n".join(sql), params).fetchall()
+
+        last_messages: dict[int, dict] = {}
+        if include_last_message and rows:
+            ids = [row["id"] for row in rows]
+            placeholders = ",".join("?" * len(ids))
+            for message in query_messages(
+                conn,
+                scope_sql=(
+                    f"m.id IN (SELECT MAX(m2.id) FROM messages m2 "
+                    f"WHERE m2.chat_id IN ({placeholders}) GROUP BY m2.chat_id)"
+                ),
+                scope_params=tuple(ids),
+                after_ts=None,
+                before_ts=None,
+                after_id=None,
+                before_id=None,
+                only_mentions=False,
+                mention_pid=None,
+                from_id=None,
+                text_query=None,
+                limit=len(ids),
+            ):
+                last_messages[message["chat_id"]] = message
 
         following_ids: set[int] = set()
         if participant_id is not None:
@@ -367,12 +538,20 @@ def _build_router():
             entry = dict(row)
             if participant_id is not None:
                 entry["following"] = row["id"] in following_ids
+            if include_last_message:
+                entry["last_message"] = last_messages.get(row["id"])
             chats.append(entry)
+        if chats:
+            notice = None
+        elif query is not None:
+            notice = "No chats match this query."
+        else:
+            notice = "No chats exist yet. Create the first one."
         return {
             "chats": chats,
             "count": len(chats),
             "framing": FRAMING,
-            "notice": None if chats else "No chats exist yet. Create the first one.",
+            "notice": notice,
         }
 
     @router.post("/chats/{chat_id}/follow")
@@ -537,6 +716,17 @@ def _build_router():
             description="Only messages with a strictly smaller ID. Page "
             "older with before_id = smallest ID already seen.",
         ),
+        from_id: int | None = Query(
+            default=None,
+            description="Only messages sent by this participant ID.",
+        ),
+        query: str | None = Query(
+            default=None,
+            min_length=1,
+            max_length=200,
+            description="Only messages whose text contains this substring "
+            "(case-insensitive).",
+        ),
         limit: int = Query(default=50, ge=1, le=200),
         only_mentions: bool = Query(default=False),
         conn: sqlite3.Connection = Depends(_get_conn),
@@ -551,97 +741,78 @@ def _build_router():
             )
         if participant_id is not None:
             require_participant(conn, participant_id)
+        if from_id is not None:
+            require_participant(conn, from_id)
 
-        def parse_bound(name: str, raw: str | None) -> str | None:
-            if raw is None:
-                return None
-            try:
-                return parse_client_timestamp(raw)
-            except ValueError:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"{name}={raw!r} is not a valid ISO 8601 timestamp.",
-                ) from None
-
-        after_ts = parse_bound("after", after)
-        before_ts = parse_bound("before", before)
-
-        query = [
-            """
-            SELECT m.id, m.chat_id, m.sender_id, m.text, m.is_introduction,
-                   m.intro_payload, m.created_at,
-                   p.name AS sender_name, p.machine AS sender_machine,
-                   p.client_type AS sender_client_type,
-                   p.agent_type AS sender_agent_type
-            FROM messages m
-            JOIN participants p ON p.id = m.sender_id
-            WHERE m.chat_id = ?
-            """
-        ]
-        params: list = [chat_id]
-        if after_ts is not None:
-            query.append("AND m.created_at > ?")
-            params.append(after_ts)
-        if before_ts is not None:
-            query.append("AND m.created_at < ?")
-            params.append(before_ts)
-        if after_id is not None:
-            query.append("AND m.id > ?")
-            params.append(after_id)
-        if before_id is not None:
-            query.append("AND m.id < ?")
-            params.append(before_id)
-        if only_mentions:
-            query.append(
-                "AND EXISTS (SELECT 1 FROM mentions mn "
-                "WHERE mn.message_id = m.id AND mn.participant_id = ?)"
-            )
-            params.append(participant_id)
-        # DESC: the most recent message first (§8.1).
-        query.append("ORDER BY m.created_at DESC, m.id DESC LIMIT ?")
-        params.append(limit)
-        rows = conn.execute("\n".join(query), params).fetchall()
-
-        mentions_by_message: dict[int, list[int]] = {}
-        if rows:
-            ids = [row["id"] for row in rows]
-            placeholders = ",".join("?" * len(ids))
-            for mention in conn.execute(
-                f"SELECT message_id, participant_id FROM mentions "
-                f"WHERE message_id IN ({placeholders}) "
-                f"ORDER BY participant_id",
-                ids,
-            ).fetchall():
-                mentions_by_message.setdefault(mention["message_id"], []).append(
-                    mention["participant_id"]
-                )
-
-        messages = [
-            {
-                "id": row["id"],
-                "chat_id": row["chat_id"],
-                "sender": {
-                    "id": row["sender_id"],
-                    "name": row["sender_name"],
-                    "machine": row["sender_machine"],
-                    "client_type": row["sender_client_type"],
-                    "agent_type": row["sender_agent_type"],
-                },
-                "text": row["text"],
-                "mentions": mentions_by_message.get(row["id"], []),
-                "is_introduction": bool(row["is_introduction"]),
-                "intro_payload": (
-                    json.loads(row["intro_payload"])
-                    if row["intro_payload"] is not None
-                    else None
-                ),
-                "created_at": row["created_at"],
-            }
-            for row in rows
-        ]
+        messages = query_messages(
+            conn,
+            scope_sql="m.chat_id = ?",
+            scope_params=(chat_id,),
+            after_ts=parse_bound("after", after),
+            before_ts=parse_bound("before", before),
+            after_id=after_id,
+            before_id=before_id,
+            only_mentions=only_mentions,
+            mention_pid=participant_id,
+            from_id=from_id,
+            text_query=query,
+            limit=limit,
+        )
         return {
             "chat_id": chat_id,
             "chat_name": chat["name"],
+            "framing": FRAMING,
+            "count": len(messages),
+            "messages": messages,
+            "notice": None if messages else EMPTY_NOTICE,
+        }
+
+    @router.get("/messages")
+    def get_inbox(
+        participant_id: int = Query(
+            description="The requesting participant: the inbox spans every "
+            "chat this participant currently follows.",
+        ),
+        after: str | None = Query(default=None),
+        before: str | None = Query(default=None),
+        after_id: int | None = Query(default=None),
+        before_id: int | None = Query(default=None),
+        from_id: int | None = Query(default=None),
+        query: str | None = Query(default=None, min_length=1, max_length=200),
+        limit: int = Query(default=50, ge=1, le=200),
+        only_mentions: bool = Query(default=False),
+        conn: sqlite3.Connection = Depends(_get_conn),
+    ):
+        """The global inbox (§8.3): one call answers "what awaits me, anywhere".
+
+        `only_mentions=true` + `after`/`after_id` at the client's checkpoint
+        is the single most important call of the system — messages across
+        all followed chats, most recent first.
+        """
+        require_participant(conn, participant_id)
+        if from_id is not None:
+            require_participant(conn, from_id)
+
+        messages = query_messages(
+            conn,
+            scope_sql=(
+                "m.chat_id IN (SELECT chat_id FROM chat_members "
+                "WHERE participant_id = ? AND left_at IS NULL)"
+            ),
+            scope_params=(participant_id,),
+            after_ts=parse_bound("after", after),
+            before_ts=parse_bound("before", before),
+            after_id=after_id,
+            before_id=before_id,
+            only_mentions=only_mentions,
+            mention_pid=participant_id,
+            from_id=from_id,
+            text_query=query,
+            limit=limit,
+        )
+        return {
+            "participant_id": participant_id,
+            "scope": "all chats this participant follows",
             "framing": FRAMING,
             "count": len(messages),
             "messages": messages,
@@ -675,6 +846,36 @@ def _build_router():
             "participants": participants,
             "count": len(participants),
             "framing": FRAMING,
+        }
+
+    @router.get("/participants/{participant_id}/chats")
+    def list_participant_chats(
+        participant_id: int, conn: sqlite3.Connection = Depends(_get_conn)
+    ):
+        """All chats a given participant follows — who is where (§8.3)."""
+        participant = require_participant(conn, participant_id)
+        rows = conn.execute(
+            """
+            SELECT c.id, c.name, c.description, m.followed_at, m.left_at
+            FROM chat_members m
+            JOIN chats c ON c.id = m.chat_id
+            WHERE m.participant_id = ?
+            ORDER BY c.id
+            """,
+            (participant_id,),
+        ).fetchall()
+        chats = []
+        for row in rows:
+            entry = dict(row)
+            entry["active"] = row["left_at"] is None
+            chats.append(entry)
+        return {
+            "participant_id": participant["id"],
+            "participant_name": participant["name"],
+            "chats": chats,
+            "count": len(chats),
+            "framing": FRAMING,
+            "notice": None if chats else "This participant follows no chats.",
         }
 
     return router

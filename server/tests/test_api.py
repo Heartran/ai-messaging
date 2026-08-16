@@ -383,6 +383,164 @@ def test_framing_on_all_participant_content_paths(client):
     )
 
 
+def test_from_id_filters_by_sender(client):
+    chat_id, a, b = make_chat_with_two(client)
+    client.post(f"/chats/{chat_id}/messages", json={"sender_id": a, "text": "from a"})
+    client.post(f"/chats/{chat_id}/messages", json={"sender_id": b, "text": "from b"})
+    body = client.get(
+        f"/chats/{chat_id}/messages", params={"from_id": b}
+    ).json()
+    assert [m["text"] for m in body["messages"]] == ["from b"]
+    unknown = client.get(f"/chats/{chat_id}/messages", params={"from_id": 999})
+    assert unknown.status_code == 404
+
+
+def test_text_query_matches_literally_including_like_wildcards(client):
+    chat_id, a, _ = make_chat_with_two(client)
+    client.post(
+        f"/chats/{chat_id}/messages",
+        json={"sender_id": a, "text": "progress at 100% today"},
+    )
+    client.post(
+        f"/chats/{chat_id}/messages",
+        json={"sender_id": a, "text": "progress at 100 units today"},
+    )
+    body = client.get(
+        f"/chats/{chat_id}/messages", params={"query": "100%"}
+    ).json()
+    assert [m["text"] for m in body["messages"]] == ["progress at 100% today"]
+
+
+def test_global_inbox_spans_only_followed_chats(client):
+    a = register(client, name="Alice")["participant_id"]
+    b = register(client, name="Bob")["participant_id"]
+    followed = client.post(
+        "/chats", json={"participant_id": a, "name": "followed"}
+    ).json()["chat_id"]
+    other = client.post(
+        "/chats", json={"participant_id": b, "name": "not-followed"}
+    ).json()["chat_id"]
+    abandoned = client.post(
+        "/chats", json={"participant_id": a, "name": "abandoned"}
+    ).json()["chat_id"]
+    client.post(f"/chats/{followed}/follow", json={"participant_id": b})
+    client.post(f"/chats/{followed}/messages", json={"sender_id": b, "text": "in"})
+    client.post(f"/chats/{other}/messages", json={"sender_id": b, "text": "out"})
+    client.post(
+        f"/chats/{abandoned}/messages", json={"sender_id": a, "text": "old"}
+    )
+    client.post(f"/chats/{abandoned}/leave", json={"participant_id": a})
+
+    body = client.get("/messages", params={"participant_id": a}).json()
+    assert [(m["chat_name"], m["text"]) for m in body["messages"]] == [
+        ("followed", "in")
+    ]
+    assert body["framing"] == FRAMING
+
+    # participant_id is mandatory for the inbox.
+    assert client.get("/messages").status_code == 422
+
+
+def test_global_inbox_what_awaits_me_anywhere(client):
+    # The most important call of the system (§8.3): chat scope omitted,
+    # only_mentions=true, after_id=<checkpoint>.
+    a = register(client, name="Alice")["participant_id"]
+    b = register(client, name="Bob")["participant_id"]
+    one = client.post(
+        "/chats", json={"participant_id": a, "name": "one"}
+    ).json()["chat_id"]
+    two = client.post(
+        "/chats", json={"participant_id": a, "name": "two"}
+    ).json()["chat_id"]
+    for chat in (one, two):
+        client.post(f"/chats/{chat}/follow", json={"participant_id": b})
+    checkpoint = client.post(
+        f"/chats/{one}/messages",
+        json={"sender_id": b, "text": "old mention", "mentions": [a]},
+    ).json()["id"]
+    client.post(
+        f"/chats/{one}/messages",
+        json={"sender_id": b, "text": "new mention in one", "mentions": [a]},
+    )
+    client.post(
+        f"/chats/{two}/messages",
+        json={"sender_id": b, "text": "new mention in two", "mentions": [a]},
+    )
+    client.post(f"/chats/{two}/messages", json={"sender_id": b, "text": "noise"})
+
+    body = client.get(
+        "/messages",
+        params={"participant_id": a, "only_mentions": "true", "after_id": checkpoint},
+    ).json()
+    assert [m["text"] for m in body["messages"]] == [
+        "new mention in two",
+        "new mention in one",
+    ]
+
+
+def test_list_chats_since_counts_unread_statelessly(client):
+    chat_id, a, b = make_chat_with_two(client)
+    client.post(f"/chats/{chat_id}/messages", json={"sender_id": a, "text": "one"})
+    checkpoint = client.post(
+        f"/chats/{chat_id}/messages", json={"sender_id": a, "text": "two"}
+    ).json()["created_at"]
+    client.post(f"/chats/{chat_id}/messages", json={"sender_id": a, "text": "three"})
+    client.post(f"/chats/{chat_id}/messages", json={"sender_id": a, "text": "four"})
+
+    body = client.get("/chats", params={"since": checkpoint}).json()
+    assert body["chats"][0]["messages_since"] == 2
+
+    plain = client.get("/chats").json()
+    assert "messages_since" not in plain["chats"][0]
+
+
+def test_list_chats_include_last_message(client):
+    chat_id, a, _ = make_chat_with_two(client)
+    client.post(f"/chats/{chat_id}/messages", json={"sender_id": a, "text": "first"})
+    client.post(f"/chats/{chat_id}/messages", json={"sender_id": a, "text": "latest"})
+    empty = client.post(
+        "/chats", json={"participant_id": a, "name": "empty"}
+    ).json()["chat_id"]
+
+    body = client.get("/chats", params={"include_last_message": "true"}).json()
+    by_id = {chat["id"]: chat for chat in body["chats"]}
+    assert by_id[chat_id]["last_message"]["text"] == "latest"
+    assert by_id[empty]["last_message"] is None
+
+    plain = client.get("/chats").json()
+    assert "last_message" not in plain["chats"][0]
+
+
+def test_list_chats_query_filters_by_name(client):
+    pid = register(client)["participant_id"]
+    client.post("/chats", json={"participant_id": pid, "name": "general"})
+    client.post("/chats", json={"participant_id": pid, "name": "dev-updates"})
+    body = client.get("/chats", params={"query": "gener"}).json()
+    assert [chat["name"] for chat in body["chats"]] == ["general"]
+    nothing = client.get("/chats", params={"query": "zzz"}).json()
+    assert nothing["chats"] == []
+    assert nothing["notice"] == "No chats match this query."
+
+
+def test_participant_chats_endpoint(client):
+    a = register(client, name="Alice")["participant_id"]
+    one = client.post(
+        "/chats", json={"participant_id": a, "name": "one"}
+    ).json()["chat_id"]
+    two = client.post(
+        "/chats", json={"participant_id": a, "name": "two"}
+    ).json()["chat_id"]
+    client.post(f"/chats/{two}/leave", json={"participant_id": a})
+
+    body = client.get(f"/participants/{a}/chats").json()
+    assert body["participant_name"] == "Alice"
+    by_id = {chat["id"]: chat for chat in body["chats"]}
+    assert by_id[one]["active"] is True
+    assert by_id[two]["active"] is False
+
+    assert client.get("/participants/999/chats").status_code == 404
+
+
 # ------------------------------------------------------------ introduction
 
 def test_introduction_is_a_message_with_a_twist(client):
