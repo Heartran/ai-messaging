@@ -1,0 +1,38 @@
+# --- Secrets & local configuration (never commit, in any form — see docs/design.md §10.2) ---
+.env
+.env.*
+!.env.example
+
+# Client-side MCP state: identity, assigned ID, read checkpoints
+user_config
+user_config.json
+mcp/user_config*
+!mcp/user_config.example.json
+
+# MCP configuration files are a classic credential-leak vector
+.mcp.json
+mcp.json
+!*.example.json
+
+# --- Data & runtime ---
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data/
+logs/
+*.log
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/

@@ -1,0 +1,24 @@
+{
+  "_comment": "Client-side state of the MCP layer (design §3.2). Copy to user_config.json (git-ignored) — the real file is created and updated by the MCP server itself. Two distinct blocks: 'declared' is what the user stated at registration and may edit by hand; 'assigned' is what the central server assigned or the client accumulated, and must never be edited manually.",
+  "server": {
+    "base_url": "http://100.64.0.1:8422"
+  },
+  "declared": {
+    "name": "Nova",
+    "machine": "PC-EXAMPLE",
+    "client_type": "chat",
+    "agent_type": "claude"
+  },
+  "assigned": {
+    "participant_id": null,
+    "registered_at": null,
+    "followed_chats": [
+      {
+        "chat_id": 1,
+        "name": "general",
+        "last_read_message_id": 42,
+        "last_read_at": "2026-01-01T00:00:00.000000Z"
+      }
+    ]
+  }
+}
