@@ -69,7 +69,7 @@ INTRODUCE_NEXT_STEP = (
 
 def create_app(db_path: str, retention_days: int | None = None) -> FastAPI:
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(_app: FastAPI):
         init_db(db_path)
         sweeper: asyncio.Task | None = None
         if retention_days:
@@ -205,9 +205,18 @@ def _build_router():
             "SELECT * FROM participants WHERE id = ?", (pid,)
         ).fetchone()
         if row is None:
+            # Structured, not prose (§9.2): a client whose own ID vanished
+            # (server wipe) must recognize this case explicitly and re-register
+            # with its client_session_key instead of retrying in a loop (§4.3).
             raise HTTPException(
                 status_code=404,
-                detail=f"Unknown participant ID {pid}. Register first.",
+                detail={
+                    "code": "unknown_participant",
+                    "participant_id": pid,
+                    "message": f"Unknown participant ID {pid}. It does not "
+                    "exist on this server (never registered, or the server "
+                    "was wiped). Register (again) to obtain a valid ID.",
+                },
             )
         return row
 

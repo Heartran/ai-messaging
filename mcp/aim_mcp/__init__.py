@@ -5,4 +5,4 @@ tailnet. Holds the client-side state (identity, assigned ID, followed
 chats, read checkpoints) in a local user_config file. See docs/design.md.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

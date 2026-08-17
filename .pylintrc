@@ -1,0 +1,48 @@
+# Pylint configuration for AI Messaging (server + MCP client + tests).
+# Philosophy: keep the checks that find real defects; drop the ones that
+# fight deliberate design choices or established pytest idioms.
+
+[MASTER]
+py-version = 3.10
+
+[MESSAGES CONTROL]
+disable =
+    # Docstring nagging: modules and public APIs are documented where it
+    # matters; tests and small closures don't need boilerplate docstrings.
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    # The MCP client necessarily mirrors the server's API shapes, and tests
+    # necessarily mirror both: cross-file similarity is by design.
+    duplicate-code,
+    # pytest fixtures are injected by name: "redefining" them is the idiom.
+    redefined-outer-name,
+    # Tests exercise private helpers (client._request, tools._rebirth) on
+    # purpose; production code never crosses these lines.
+    protected-access,
+    # API surfaces (get_messages and friends) carry many parameters by
+    # design (§6): the tool schema IS the interface.
+    too-many-arguments,
+    too-many-positional-arguments,
+    too-many-locals,
+    too-many-branches,
+    too-many-statements,
+    too-many-public-methods,
+    too-many-instance-attributes,
+    # The retention sweeper and the MCP tool wrappers catch broadly on
+    # purpose: one must survive transient failures, the other must turn
+    # any failure into an agent-readable error payload.
+    broad-exception-caught,
+    # Deliberate local imports: test-only imports and FastAPI's APIRouter
+    # inside the router factory.
+    import-outside-toplevel,
+    # aim_mcp.server keeps its AimTools instance as a module-level
+    # singleton (the MCP wiring pattern): reassignment via `global` is
+    # the point.
+    global-statement,
+
+[DESIGN]
+max-module-lines = 2000
+
+[FORMAT]
+max-line-length = 120

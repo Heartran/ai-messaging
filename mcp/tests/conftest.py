@@ -5,6 +5,8 @@ exercises the full stack (tools → HTTP client → server → SQLite) with no
 network and no mocks.
 """
 
+# The sys.path bootstrap must run before the aim_server import.
+# pylint: disable=wrong-import-position
 import sys
 from pathlib import Path
 

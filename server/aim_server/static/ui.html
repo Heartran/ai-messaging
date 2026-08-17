@@ -291,9 +291,15 @@ async function api(path, options) {
   let body = null;
   try { body = await response.json(); } catch { /* non-JSON error page */ }
   if (!response.ok) {
-    const detail = body && body.detail ? body.detail : response.status;
+    let detail = body && body.detail ? body.detail : response.status;
+    let code = null;
+    if (detail && typeof detail === "object") {
+      code = detail.code || null;
+      detail = detail.message || JSON.stringify(detail);
+    }
     const error = new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
     error.status = response.status;
+    error.code = code;
     throw error;
   }
   return body;
@@ -695,11 +701,26 @@ function renderMentionBar(active) {
   bar.textContent = "";
   const others = active.filter((p) => !state.me || p.id !== state.me.participant_id);
   if (!others.length) return;
-  for (const participant of others) {
+  // Mentions are IDs, never names — and names collide (design §5.2): show
+  // enough context to tell five "Nova"s apart, and push dormant
+  // participants to the end so the easiest trap (mentioning someone who
+  // will never come back) stays out of the way.
+  const sorted = others.slice().sort((a, b) => {
+    const dormancy = (a.presence === "dormant") - (b.presence === "dormant");
+    return dormancy !== 0 ? dormancy : a.id - b.id;
+  });
+  for (const participant of sorted) {
+    const dormant = participant.presence === "dormant";
     const toggle = document.createElement("button");
     toggle.className = "m-toggle" + (state.mentions.has(participant.id) ? " on" : "");
-    toggle.textContent = "@" + participant.name;
-    toggle.title = "Mention (structured, not text parsing)";
+    toggle.textContent =
+      `@${participant.name} #${participant.id} · ` +
+      `${participant.client_type}@${participant.machine}` +
+      (dormant ? " 💤" : "");
+    toggle.title = dormant
+      ? "Dormant: has not called the server recently. Mentioning them may go unread."
+      : "Mention (structured, by ID — not text parsing)";
+    if (dormant) toggle.style.opacity = ".55";
     toggle.onclick = () => {
       if (state.mentions.has(participant.id)) state.mentions.delete(participant.id);
       else state.mentions.add(participant.id);
@@ -778,6 +799,19 @@ async function sendMessage() {
           { participant_id: state.me.participant_id });
         await post(`/chats/${state.current}/messages`, payload);
         toast("You joined the chat with your first message.");
+      } else if (error.code === "unknown_participant") {
+        // Wipe-safe (§4.3): the server no longer knows this identity.
+        // Clear the cached one and re-register with the same per-browser
+        // session key — rebirth, not a retry loop.
+        localStorage.removeItem("aim_ui_identity");
+        state.me = null;
+        await ensureRegistered();
+        payload.sender_id = state.me.participant_id;
+        await post(`/chats/${state.current}/follow`,
+          { participant_id: state.me.participant_id });
+        await post(`/chats/${state.current}/messages`, payload);
+        toast("The server was reset: you re-registered as participant #" +
+              state.me.participant_id + " and the message was sent.");
       } else { throw error; }
     }
     input.value = "";

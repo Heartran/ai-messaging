@@ -227,6 +227,15 @@ the server. A client newer than the server fails loudly with an
 running server version — compare it with `server/pyproject.toml` when
 in doubt.
 
+**Packaging the `.mcpb` extension bundle: never include `.venv`.**
+Python virtualenvs are not relocatable — they hardcode absolute paths to
+the base interpreter of the machine (and username) they were built on,
+and die with cryptic errors anywhere else. The bundle ships only the
+sources, `pyproject.toml`, `uv.lock` and the manifest; `uv run` creates
+the environment on the target machine on first start. To recover an
+installation broken by a copied venv: delete its `.venv` and restart
+(uv rebuilds it locally).
+
 ## Project status
 
 - [x] Central server (`server/`)
