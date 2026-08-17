@@ -41,8 +41,8 @@ def test_register_assigns_progressive_ids_and_instructs_introduction(client):
 
 
 def test_same_machine_two_registrations_two_ids(client):
-    a = register(client, name="Nova", machine="PC-FEDERICO", client_type="chat")
-    b = register(client, name="Code", machine="PC-FEDERICO", client_type="code")
+    a = register(client, name="Nova", machine="PC-ONE", client_type="chat")
+    b = register(client, name="Code", machine="PC-ONE", client_type="code")
     assert a["participant_id"] != b["participant_id"]
 
 
@@ -834,10 +834,16 @@ def test_unknown_body_fields_are_rejected_not_ignored(client):
 
 
 def test_ui_is_served_from_the_same_bind(client):
+    from aim_server import __version__
+
     page = client.get("/ui")
     assert page.status_code == 200
     assert "text/html" in page.headers["content-type"]
     assert "AI Messaging" in page.text
+    # The page is stamped with the serving version (§10.5), so the browser
+    # can spot skew against the live server_version.
+    assert f'UI_VERSION = "{__version__}"' in page.text
+    assert "__AIM_VERSION__" not in page.text
 
     root = client.get("/", follow_redirects=False)
     assert root.status_code in (302, 307)

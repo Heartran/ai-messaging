@@ -456,8 +456,14 @@ def _build_router():
 
     # ------------------------------------------------------------ endpoints
 
+    # The page learns at serve time which server version delivered it, so
+    # it can spot skew against the live server_version — e.g. a browser
+    # showing a cached page against an updated server (§10.5).
     ui_html = (
-        resources.files("aim_server").joinpath("static/ui.html").read_text("utf-8")
+        resources.files("aim_server")
+        .joinpath("static/ui.html")
+        .read_text("utf-8")
+        .replace("__AIM_VERSION__", __version__)
     )
 
     @router.get("/", include_in_schema=False)

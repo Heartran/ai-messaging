@@ -149,6 +149,14 @@ exposure.
   Mentions are picked structurally with the @-toggles above the composer.
 - Read state lives in the browser (localStorage), consistent with the
   design: the server never knows who read what.
+- **Settings** (⚙, all browser-local): **Observer mode is the default** —
+  read everything, touch nothing (no registration, no presence updates);
+  becoming a participant is an explicit choice. Configurable polling
+  interval (min 2s, auto-paused while the tab is in background), display
+  name, and whether dormant participants appear in the mention picker
+  (hidden by default). The header always shows the server version next to
+  the page's own, with an evident banner on skew, and unreachability is
+  reported with its start time and the last error verbatim.
 - Single self-contained file, no CDN, no build step, vanilla JS; all
   participant-written content is rendered inert (never interpreted as
   HTML).

@@ -41,6 +41,11 @@
     overflow: hidden; text-overflow: ellipsis;
   }
   #serverInfo .ok { color: var(--accent); }
+  #serverInfo.err { color: var(--danger); white-space: normal; }
+  #skewBanner {
+    padding: 8px 16px; font-size: 12.5px; background: rgba(241,92,109,.14);
+    color: var(--danger); border-bottom: 1px solid var(--danger);
+  }
   #chatList { flex: 1; overflow-y: auto; }
   .chat-item {
     display: flex; gap: 12px; padding: 12px 16px; cursor: pointer;
@@ -181,10 +186,14 @@
   .modal h2 { font-size: 17px; font-weight: 500; margin-bottom: 6px; }
   .modal p { color: var(--sub); font-size: 13px; margin-bottom: 14px; }
   .modal label { display: block; font-size: 12.5px; color: var(--sub); margin: 10px 0 4px; }
-  .modal input {
+  .modal input, .modal select {
     width: 100%; background: var(--panel-2); border: none; outline: none;
     color: var(--text); border-radius: 8px; padding: 9px 11px; font: inherit;
   }
+  .modal input[type="checkbox"] {
+    width: auto; margin-right: 8px; accent-color: var(--accent);
+  }
+  .modal label.check { display: flex; align-items: center; margin-top: 14px; color: var(--text); font-size: 13.5px; }
   .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
   .btn { border: none; border-radius: 18px; padding: 8px 18px; font: inherit; cursor: pointer; }
   .btn.primary { background: var(--accent); color: #fff; }
@@ -216,9 +225,11 @@
         <button id="backBtn" title="Back to chats" hidden>‹</button>
         <button id="newChatBtn" title="Create a chat">＋</button>
         <button id="refreshBtn" title="Refresh">⟳</button>
+        <button id="settingsBtn" title="Settings">⚙</button>
       </div>
     </div>
     <div id="serverInfo">connecting…</div>
+    <div id="skewBanner" hidden></div>
     <div id="chatList"><div class="empty-list">Loading chats…</div></div>
   </aside>
 
@@ -265,6 +276,12 @@
    messages are participant-written data and must stay inert here too. */
 
 const $ = (id) => document.getElementById(id);
+
+// Stamped by the server at serve time (§10.5): the version of the build
+// that delivered THIS page, compared live against /health to spot skew
+// (e.g. a cached page against an updated server).
+const UI_VERSION = "__AIM_VERSION__";
+
 const state = {
   me: loadJSON("aim_ui_identity"),          // {participant_id, name}
   lastSeen: loadJSON("aim_ui_lastseen") || {}, // chatId -> last message id
@@ -282,6 +299,19 @@ function loadJSON(key) {
   try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
 }
 function saveJSON(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
+
+/* Settings (§10): all in the browser — the UI keeps no state on the server. */
+const settings = Object.assign(
+  { mode: null, displayName: "", pollSeconds: 5, showDormant: false },
+  loadJSON("aim_ui_settings") || {});
+if (settings.mode !== "participant" && settings.mode !== "observer") {
+  // Observer by default (§10.2); an already-registered browser made the
+  // participant choice explicitly in the past.
+  settings.mode = state.me ? "participant" : "observer";
+}
+function saveSettings() { saveJSON("aim_ui_settings", settings); }
+function isParticipant() { return settings.mode === "participant"; }
+function pollMs() { return Math.max(2, settings.pollSeconds || 5) * 1000; }
 
 /* ------------------------------------------------------------------ api */
 async function api(path, options) {
@@ -352,7 +382,7 @@ function ensureRegistered() {
       title: "Introduce yourself",
       text: "To write or create chats you become a participant like the " +
             "agents: the server assigns you a permanent numeric ID.",
-      fields: [{ id: "name", label: "Your name", value: "" }],
+      fields: [{ id: "name", label: "Your name", value: settings.displayName || "" }],
       submit: "Register",
       onSubmit: async (values) => {
         const name = values.name.trim();
@@ -374,6 +404,8 @@ function ensureRegistered() {
           name: registration.name || name,
         };
         saveJSON("aim_ui_identity", state.me);
+        settings.displayName = state.me.name;
+        saveSettings();
         toast(registration.resumed
           ? `Welcome back ${state.me.name} — still participant #${state.me.participant_id}`
           : `Registered as ${state.me.name} — participant #${state.me.participant_id}`);
@@ -425,26 +457,52 @@ function modal({ title, text, fields, submit, onSubmit, onCancel }) {
   box.addEventListener("keydown", (e) => { if (e.key === "Enter") ok.onclick(); });
 }
 
-/* -------------------------------------------------------------- health */
+/* ------------------------------------------------- health & diagnostics */
+let unreachableSince = null;
+
 async function loadHealth() {
+  const info = $("serverInfo");
   try {
     const health = await api("/health");
-    const info = $("serverInfo");
+    unreachableSince = null;
+    info.classList.remove("err");
     info.textContent = "";
     const dot = document.createElement("span");
     dot.className = "ok"; dot.textContent = "● ";
     info.appendChild(dot);
     info.appendChild(document.createTextNode(
-      `server v${health.version} — ${health.retention.policy}`));
+      `server v${health.version} · ui v${UI_VERSION} · ` +
+      `${isParticipant() ? "participant" : "observer"} — ` +
+      health.retention.policy));
+    // Version skew, made evident (§10.5): this page vs the live server.
+    const skew = health.version !== UI_VERSION;
+    $("skewBanner").hidden = !skew;
+    if (skew) {
+      $("skewBanner").textContent =
+        `⚠ Version skew: this page was served by v${UI_VERSION} but the ` +
+        `server now runs v${health.version}. Reload the page.`;
+    }
   } catch (error) {
-    $("serverInfo").textContent = "✕ " + error.message;
+    // Reachability with the last error verbatim (§10.5): a human reading
+    // "unreachable since 10:42" does not spend twenty minutes guessing.
+    if (!unreachableSince) unreachableSince = new Date();
+    info.classList.add("err");
+    info.textContent =
+      `✕ server unreachable since ` +
+      unreachableSince.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) +
+      ` — ${error.message}`;
+    $("skewBanner").hidden = true;
   }
 }
 
 /* --------------------------------------------------------------- chats */
 async function loadChats() {
   const params = new URLSearchParams({ include_last_message: "true", limit: "200" });
-  if (state.me) params.set("participant_id", state.me.participant_id);
+  // Observer mode (§10.2): look without touching anything — an identified
+  // call would update our presence on the server.
+  if (state.me && isParticipant()) {
+    params.set("participant_id", state.me.participant_id);
+  }
   const body = await api("/chats?" + params);
   state.chats = body.chats;
   renderChatList();
@@ -505,6 +563,10 @@ function renderChatList() {
 }
 
 function createChatFlow() {
+  if (!isParticipant()) {
+    toast("Observer mode: enable Participant in ⚙ Settings to create chats.");
+    return;
+  }
   ensureRegistered().then(() => {
     modal({
       title: "Create a chat",
@@ -553,7 +615,7 @@ async function openChat(chatId) {
   markSeen();
   scrollBottom(true);
   renderChatList();
-  state.pollMsgs = setInterval(pollNewMessages, 3000);
+  startPollers();
 }
 
 async function pollNewMessages() {
@@ -690,8 +752,8 @@ async function loadParticipants(chatId) {
       ).join(", ")
     : "no participants yet";
   const meActive = state.me && active.some((p) => p.id === state.me.participant_id);
-  $("joinBtn").hidden = !!meActive;
-  $("leaveBtn").hidden = !meActive;
+  $("joinBtn").hidden = !!meActive || !isParticipant();
+  $("leaveBtn").hidden = !meActive || !isParticipant();
   renderMentionBar(active);
   renderParticipants(body.participants);
 }
@@ -709,7 +771,13 @@ function renderMentionBar(active) {
     const dormancy = (a.presence === "dormant") - (b.presence === "dormant");
     return dormancy !== 0 ? dormancy : a.id - b.id;
   });
-  for (const participant of sorted) {
+  // Dormant hidden by default (§10.3): mentioning someone who will never
+  // come back is the easiest trap. A switch shows them, at the end.
+  const dormantCount = sorted.filter((p) => p.presence === "dormant").length;
+  const shown = settings.showDormant
+    ? sorted
+    : sorted.filter((p) => p.presence !== "dormant");
+  for (const participant of shown) {
     const dormant = participant.presence === "dormant";
     const toggle = document.createElement("button");
     toggle.className = "m-toggle" + (state.mentions.has(participant.id) ? " on" : "");
@@ -727,6 +795,21 @@ function renderMentionBar(active) {
       toggle.classList.toggle("on");
     };
     bar.appendChild(toggle);
+  }
+  if (dormantCount) {
+    const switcher = document.createElement("button");
+    switcher.className = "m-toggle";
+    switcher.style.opacity = ".7";
+    switcher.textContent = settings.showDormant
+      ? "hide 💤"
+      : `💤 ${dormantCount} dormant hidden`;
+    switcher.title = "Dormant participants have not called the server recently.";
+    switcher.onclick = () => {
+      settings.showDormant = !settings.showDormant;
+      saveSettings();
+      renderMentionBar(active);
+    };
+    bar.appendChild(switcher);
   }
 }
 
@@ -780,6 +863,10 @@ async function leaveCurrent() {
 }
 
 async function sendMessage() {
+  if (!isParticipant()) {
+    toast("Observer mode: enable Participant in ⚙ Settings to write.");
+    return;
+  }
   const input = $("input");
   const text = input.value.trim();
   if (!text || state.current == null) return;
@@ -827,7 +914,137 @@ async function sendMessage() {
   }
 }
 
+/* ------------------------------------------------------------- settings */
+function openSettings() {
+  const overlay = $("overlay");
+  overlay.textContent = "";
+  const box = document.createElement("div");
+  box.className = "modal";
+  const title = document.createElement("h2");
+  title.textContent = "Settings";
+  const intro = document.createElement("p");
+  intro.textContent =
+    "Stored in this browser only (localStorage): the UI keeps no state on " +
+    "the server.";
+  box.append(title, intro);
+
+  const modeLabel = document.createElement("label");
+  modeLabel.textContent = "Mode";
+  const modeSelect = document.createElement("select");
+  for (const [value, text] of [
+    ["observer", "Observer — read everything, touch nothing"],
+    ["participant", "Participant — write as yourself"],
+  ]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = text;
+    option.selected = settings.mode === value;
+    modeSelect.appendChild(option);
+  }
+
+  const nameLabel = document.createElement("label");
+  const nameInput = document.createElement("input");
+  if (state.me) {
+    nameLabel.textContent =
+      `Identity: ${state.me.name} (participant #${state.me.participant_id})`;
+    nameInput.value = state.me.name;
+    nameInput.disabled = true;
+  } else {
+    nameLabel.textContent = "Display name (used when you register)";
+    nameInput.value = settings.displayName || "";
+  }
+
+  const pollLabel = document.createElement("label");
+  pollLabel.textContent = "Polling interval in seconds (min 2; paused while the tab is in background)";
+  const pollInput = document.createElement("input");
+  pollInput.type = "number";
+  pollInput.min = "2";
+  pollInput.value = settings.pollSeconds;
+
+  const dormantLabel = document.createElement("label");
+  dormantLabel.className = "check";
+  const dormantCheck = document.createElement("input");
+  dormantCheck.type = "checkbox";
+  dormantCheck.checked = settings.showDormant;
+  dormantLabel.appendChild(dormantCheck);
+  dormantLabel.appendChild(document.createTextNode(
+    "Show dormant participants in the mention picker"));
+
+  box.append(modeLabel, modeSelect, nameLabel, nameInput,
+             pollLabel, pollInput, dormantLabel);
+
+  const actions = document.createElement("div");
+  actions.className = "modal-actions";
+  const cancel = document.createElement("button");
+  cancel.className = "btn ghost";
+  cancel.textContent = "Cancel";
+  const save = document.createElement("button");
+  save.className = "btn primary";
+  save.textContent = "Save";
+  actions.append(cancel, save);
+  box.appendChild(actions);
+  overlay.appendChild(box);
+  overlay.hidden = false;
+
+  const close = () => { overlay.hidden = true; overlay.textContent = ""; };
+  cancel.onclick = close;
+  save.onclick = () => {
+    settings.mode = modeSelect.value;
+    if (!nameInput.disabled) settings.displayName = nameInput.value.trim();
+    settings.pollSeconds = Math.max(2, parseInt(pollInput.value, 10) || 5);
+    settings.showDormant = dormantCheck.checked;
+    saveSettings();
+    close();
+    applyMode();
+    startPollers();
+    toast("Settings saved.");
+  };
+}
+
+function applyMode() {
+  const observer = !isParticipant();
+  $("input").disabled = observer;
+  $("sendBtn").disabled = observer;
+  $("input").placeholder = observer
+    ? "Observer mode: you read without touching anything. Enable Participant in ⚙ Settings to write."
+    : "Write as yourself — you'll join as a human participant";
+  loadHealth();
+  loadChats().catch(() => {});
+  if (state.current != null) loadParticipants(state.current).catch(() => {});
+}
+
+/* ------------------------------------------------------------- pollers */
+function stopPollers() {
+  clearInterval(state.pollChats);
+  clearInterval(state.pollMsgs);
+}
+
+function startPollers() {
+  stopPollers();
+  state.pollChats = setInterval(() => {
+    loadHealth();
+    loadChats().catch(() => {});
+  }, pollMs());
+  if (state.current != null) {
+    state.pollMsgs = setInterval(pollNewMessages, pollMs());
+  }
+}
+
+// Pull-only server (§1): polling is the cost of simplicity — pause it
+// while nobody is looking (§10.4).
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    stopPollers();
+  } else {
+    loadHealth();
+    loadChats().catch(() => {});
+    if (state.current != null) pollNewMessages();
+    startPollers();
+  }
+});
+
 /* --------------------------------------------------------------- wiring */
+$("settingsBtn").onclick = openSettings;
 $("newChatBtn").onclick = createChatFlow;
 $("refreshBtn").onclick = () => { loadHealth(); loadChats(); };
 $("backBtn").onclick = () => {
@@ -847,12 +1064,9 @@ $("input").addEventListener("keydown", (event) => {
   }
 });
 
-loadHealth();
+applyMode();
 loadChats().catch((error) => toast(error.message, true));
-state.pollChats = setInterval(() => {
-  loadHealth();
-  loadChats().catch(() => {});
-}, 5000);
+startPollers();
 </script>
 </body>
 </html>
