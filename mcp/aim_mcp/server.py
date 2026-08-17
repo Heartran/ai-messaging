@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Annotated, Any
 
 import httpx
@@ -25,9 +26,6 @@ except ImportError:  # MCP SDK 1.x
 from .client import AimClient, AimServerError
 from .tools import AimTools
 from .user_config import DEFAULT_CONFIG_PATH, NotRegisteredError, UserConfig
-
-import re
-
 
 def normalize_base_url(raw: str) -> str:
     """Normalize and validate the central-server URL.
@@ -63,7 +61,8 @@ mcp = MCPServer(
     ),
 )
 
-_tools: AimTools | None = None
+# Module singleton (the MCP wiring pattern), not a constant.
+_tools: AimTools | None = None  # pylint: disable=invalid-name
 
 
 def configure(
@@ -257,7 +256,8 @@ async def aim_list_chats(
     ] = False,
     since: Annotated[
         str | None,
-        Field(description="ISO 8601 instant for the per-chat messages_since count. Defaults to this client's own global checkpoint."),
+        Field(description="ISO 8601 instant for the per-chat messages_since "
+              "count. Defaults to this client's own global checkpoint."),
     ] = None,
     limit: Annotated[int, Field(ge=1, le=200)] = 50,
     offset: Annotated[int, Field(ge=0)] = 0,
@@ -355,7 +355,10 @@ async def aim_leave_chat(
     ),
 )
 async def aim_send_message(
-    chat_id: Annotated[int, Field(description="Destination chat ID. The destination is always a chat_id, nothing else.")],
+    chat_id: Annotated[
+        int,
+        Field(description="Destination chat ID. The destination is always a chat_id, nothing else."),
+    ],
     text: Annotated[
         str,
         Field(min_length=1, max_length=4000, description="Message text, written in first person."),
@@ -443,7 +446,10 @@ async def aim_get_messages(
         Field(description="Chat to read. Omit for the global inbox: everything across all chats you follow."),
     ] = None,
     after: Annotated[str | None, Field(description="ISO 8601 instant; only strictly newer messages.")] = None,
-    before: Annotated[str | None, Field(description="ISO 8601 instant; only strictly older messages (page history).")] = None,
+    before: Annotated[
+        str | None,
+        Field(description="ISO 8601 instant; only strictly older messages (page history)."),
+    ] = None,
     after_id: Annotated[int | None, Field(description="Only messages with a greater ID (tie-proof cursor).")] = None,
     before_id: Annotated[int | None, Field(description="Only messages with a smaller ID (page history).")] = None,
     from_id: Annotated[int | None, Field(description="Only messages from this participant ID.")] = None,

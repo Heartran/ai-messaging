@@ -232,7 +232,7 @@ async def test_inbox_composes_with_per_chat_checkpoints(tools, other_tools):
     assert again["notice"] == "No messages to display."
 
 
-async def test_framing_passes_through(tools, other_tools):
+async def test_framing_passes_through(tools):
     await register(tools)
     await tools.create_chat("general")
     body = await tools.get_messages(chat_id=1)
@@ -325,7 +325,7 @@ async def test_register_with_key_against_old_server_fails_loudly(tmp_path):
     from aim_mcp.client import AimClient
     from aim_mcp.tools import AimTools
 
-    def old_server(request):  # pre-0.3.0: no "resumed" in the response
+    def old_server(_request):  # pre-0.3.0: no "resumed" in the response
         return _httpx.Response(201, json={
             "participant_id": 7, "name": "Nova", "machine": "M",
             "client_type": "chat", "agent_type": "claude",
@@ -384,9 +384,8 @@ async def test_server_wipe_triggers_automatic_rebirth(tmp_path, tools, other_too
     assert created["following"] is True
 
 
-async def test_wipe_without_session_key_fails_actionably_once(
-    tmp_path, tools, other_tools
-):
+@pytest.mark.usefixtures("other_tools")
+async def test_wipe_without_session_key_fails_actionably_once(tmp_path, tools):
     await register(tools)  # no session key
     await tools.create_chat("general")
     wipe_server_db(tmp_path)
@@ -398,9 +397,8 @@ async def test_wipe_without_session_key_fails_actionably_once(
     assert tools.config.followed_chats == {}
 
 
-async def test_unknown_other_participant_does_not_trigger_rebirth(
-    tools, other_tools
-):
+@pytest.mark.usefixtures("other_tools")
+async def test_unknown_other_participant_does_not_trigger_rebirth(tools):
     await tools.register(
         "Nova", "chat", "claude", machine="PC",
         client_session_key="conversation-nova",
@@ -426,7 +424,7 @@ async def test_version_skew_warnings_both_directions_and_midsession_change():
 
     versions = iter([None, "0.1.0", EXPECTED_SERVER_VERSION, "9.9.9"])
 
-    def server(request):
+    def server(_request):
         version = next(versions)
         payload = {"status": "ok"}
         if version is not None:

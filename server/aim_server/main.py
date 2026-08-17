@@ -69,7 +69,7 @@ INTRODUCE_NEXT_STEP = (
 
 def create_app(db_path: str, retention_days: int | None = None) -> FastAPI:
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(_app: FastAPI):
         init_db(db_path)
         sweeper: asyncio.Task | None = None
         if retention_days:

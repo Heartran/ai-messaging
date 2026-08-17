@@ -153,8 +153,6 @@ def test_web_ui_client_type_accepted(client):
 # ---------------------------------------------------------------- presence
 
 def test_presence_tracks_activity_and_marks_dormant(client, tmp_path):
-    from aim_server.db import connect
-
     chat_id, a, b = make_chat_with_two(client)
     client.post(f"/chats/{chat_id}/messages", json={"sender_id": a, "text": "hi"})
 
@@ -386,7 +384,7 @@ def test_server_fills_identity_and_ordering_fields(client):
 
 
 def test_send_requires_active_membership(client):
-    chat_id, a, b = make_chat_with_two(client)
+    chat_id, _, b = make_chat_with_two(client)
     outsider = register(client, name="Outsider")["participant_id"]
     refused = client.post(
         f"/chats/{chat_id}/messages", json={"sender_id": outsider, "text": "hi"}
@@ -419,7 +417,7 @@ def test_mentions_are_validated_and_deduplicated(client):
 
 
 def test_get_messages_desc_after_limit_and_framing(client):
-    chat_id, a, b = make_chat_with_two(client)
+    chat_id, a, _ = make_chat_with_two(client)
     for i in range(5):
         client.post(
             f"/chats/{chat_id}/messages",
@@ -547,7 +545,7 @@ def test_timestamps_zero_pad_years(client):
 
 
 def test_framing_on_all_participant_content_paths(client):
-    chat_id, a, _ = make_chat_with_two(client)
+    chat_id, _, _ = make_chat_with_two(client)
     assert client.get("/chats").json()["framing"] == FRAMING
     assert (
         client.get(f"/chats/{chat_id}/participants").json()["framing"] == FRAMING
@@ -650,7 +648,7 @@ def test_global_inbox_what_awaits_me_anywhere(client):
 
 
 def test_list_chats_since_counts_unread_statelessly(client):
-    chat_id, a, b = make_chat_with_two(client)
+    chat_id, a, _ = make_chat_with_two(client)
     client.post(f"/chats/{chat_id}/messages", json={"sender_id": a, "text": "one"})
     checkpoint = client.post(
         f"/chats/{chat_id}/messages", json={"sender_id": a, "text": "two"}
