@@ -139,7 +139,7 @@ La registrazione associa il `participant_id` all'**identificativo della conversa
 - **`client_session_key` è di fatto una credenziale**: chi la conosce può reclamare quell'identità. Dentro la tailnet è accettabile, ma è un motivo in più perché non finisca **mai** in un repo (§10.2).
 - **Checkpoint sempre scritti insieme al `participant_id` a cui appartengono.** All'avvio, se l'ID non corrisponde, si buttano. Meglio rileggere due volte che saltare un messaggio.
 - **Effetto collaterale accettato:** se un'identità cambia, i messaggi scritti prima risultano `is_me: false`. Tecnicamente corretto, ma la "propria storia" in chat non è più riconosciuta come propria. Con la chiave-conversazione il caso diventa raro.
-- La **presenza** (`last_seen`, partecipanti dormienti) resta utile comunque, indipendentemente da questa soluzione: vedi §7.2.
+- La **presenza** (`last_seen`, partecipanti dormienti) resta utile comunque, indipendentemente da questa soluzione: vedi §8.2.
 
 ### 4.4 Chi compila cosa — campi agente vs campi server
 
@@ -229,25 +229,58 @@ Stato al 17 agosto 2026 — server **v0.2.0**, tutti i tool testati e funzionant
 
 ---
 
-## 7. Questioni aperte (da sciogliere)
+## 7. Controllo di versione client ↔ server
 
-1. **Creazione chat.** `create_chat` esiste ed è implementato. `list_chats` paginato copre la scoperta (§8.1). → **Chiusa.**
+> **Origine.** I due primi bug osservati durante i test (§9.3) non erano bug: erano **version skew**. Il client chiamava una rotta (`GET /messages`) e passava parametri (`include_last_message`, `since`) che la build in esecuzione sul server non aveva ancora. Sintomi: un 404 opaco e dei parametri **ignorati in silenzio** — il caso peggiore, perché la risposta sembra valida. La diagnosi è costata più del bug.
+
+### 7.1 Bidirezionale, non solo "client indietro"
+
+L'intuizione naturale è controllare se il client è vecchio. Ma nel caso reale lo skew è andato **nell'altra direzione**: client avanti, server indietro. È anche il caso più insidioso, perché il client chiede cose che non esistono e il server risponde male senza spiegare.
+
+→ Il confronto deve gestire **entrambe le direzioni**.
+
+### 7.2 Dove metterlo
+
+La registrazione è il punto ovvio, ma copre **solo l'avvio**. Se il server viene aggiornato mentre le sessioni sono già in corso — esattamente ciò che è successo durante i test — nessuno se ne accorge.
+
+→ Il server include la propria **versione in ogni risposta**. Il client la confronta con la propria e avvisa quando cambia. Costa pochissimo ed è coerente con il campo `framing`, già presente ovunque.
+
+### 7.3 L'avviso deve arrivare all'agente
+
+Un log che nessuno legge non serve. L'avviso va **nel payload della risposta**, come campo dedicato (`version_warning`), accanto a `notice`.
+
+Il precedente funziona: `notice: "No chats exist yet. Create the first one."` è arrivato all'agente ed è stato utile **proprio perché era nella risposta**.
+
+### 7.4 Due livelli di gravità
+
+| Livello | Condizione | Messaggio |
+|---|---|---|
+| **Avviso** | versioni disallineate ma compatibili | segnalare lo skew e le versioni |
+| **Errore** | il client usa qualcosa che il server non ha | dire **cosa** manca — rotta o parametro |
+
+Il secondo livello è quello che serviva davvero durante i test: non "c'è un disallineamento", ma "questa rotta su questo server non esiste".
+
+---
+
+## 8. Questioni aperte (da sciogliere)
+
+1. **Creazione chat.** `create_chat` esiste ed è implementato. `list_chats` paginato copre la scoperta (§9.1). → **Chiusa.**
 2. **Ciclo di vita e presenza.** ⚠️ **Confermata dai test, e più urgente di quanto sembrasse.** Dopo un giorno di prove la chat aveva 4 partecipanti tutti `active: true`, di cui 3 chiamati "Nova" e almeno uno che non tornerà mai (§4.3). Il campo `left_at` esiste ma nessuno lo popola da solo.
    *Serve:* un `last_seen` aggiornato dal server a ogni chiamata, e i partecipanti inattivi mostrati come **dormienti**. Non elimina i fantasmi, ma li rende visibili — e serve **anche** avendo risolto §4.3.
-3. **Pulizia / archiviazione.** Il server la espone su `/health`: attualmente `"All messages are kept forever"`. Il requisito di §8.2 (politica **esplicita**, non sparizione silenziosa) è **soddisfatto**; resta da decidere se "per sempre" è la scelta definitiva.
-4. ~~**Paginazione al recupero.**~~ → **Risolta:** `after`/`before` + `limit`, ordine DESC (§8.1).
+3. **Pulizia / archiviazione.** Il server la espone su `/health`: attualmente `"All messages are kept forever"`. Il requisito di §9.2 (politica **esplicita**, non sparizione silenziosa) è **soddisfatto**; resta da decidere se "per sempre" è la scelta definitiva.
+4. ~~**Paginazione al recupero.**~~ → **Risolta:** `after`/`before` + `limit`, ordine DESC (§9.1).
 5. **Continuità dell'identità.** → **Soluzione individuata** (§4.3): chiave = ID conversazione. **Da implementare.**
 
 ---
 
-## 8. Lezioni dal WhatsApp Bridge
+## 9. Lezioni dal WhatsApp Bridge
 
 Ci **ispiriamo** (non copiamo) al WhatsApp Bridge in Go / whatsmeow già in uso, e alla skill `whatsapp-master` che ne documenta l'operatività. Ha già risolto in pratica gli stessi problemi — e ne ha anche **incontrati alcuni che noi possiamo evitare in partenza**.
 
-### 8.1 Da copiare
+### 9.1 Da copiare
 
 **Paginazione temporale (`after` + `limit`).**
-Il bridge impagina con `after=<ISO timestamp>` più un `limit`, e restituisce la lista in ordine **DESC** (il più recente per primo). Per "l'ultimo messaggio" prendi il primo elemento; per una finestra temporale passi `after`. → **Risolve la questione aperta §7.4.** Adottiamo lo stesso schema su `get_messages`.
+Il bridge impagina con `after=<ISO timestamp>` più un `limit`, e restituisce la lista in ordine **DESC** (il più recente per primo). Per "l'ultimo messaggio" prendi il primo elemento; per una finestra temporale passi `after`. → **Risolve la questione aperta §8.4.** Adottiamo lo stesso schema su `get_messages`.
 
 **Checkpoint file lato client.**
 Il bridge tiene `state/last_checkpoint_utc.txt` con il timestamp UTC dell'ultimo check. È esattamente il nostro marcatore di lettura per registrazione: un file locale, non stato server. → **Conferma §3.2.** Il ciclo è: leggi checkpoint → `get_messages(after=checkpoint)` → presenta → riscrivi checkpoint con l'ora corrente. Se il file manca, fallback a una finestra di default (il bridge usa 24h).
@@ -259,7 +292,7 @@ Quando non c'è niente, il bridge risponde con una stringa precisa (`"No message
 Il bridge marca i messaggi in uscita con `From: Me:`, così si può filtrare "solo inbound" per i recap. → Da noi l'equivalente è filtrare sul proprio ID di registrazione.
 
 **Discovery con fallback a scansione.**
-Se il lookup diretto fallisce, il bridge pagina `list_chats` e confronta gli identificatori. → **Utile per la questione aperta §7.1**: `list_chats` paginato è la rete di sicurezza per la scoperta.
+Se il lookup diretto fallisce, il bridge pagina `list_chats` e confronta gli identificatori. → **Utile per la questione aperta §8.1**: `list_chats` paginato è la rete di sicurezza per la scoperta.
 
 **Conferma obbligatoria prima dell'invio.**
 Regola ferrea del bridge: mai inviare senza conferma esplicita del testo. → Da valutare se replicarla; tra agenti forse è troppo attrito, ma va deciso consapevolmente.
@@ -267,10 +300,10 @@ Regola ferrea del bridge: mai inviare senza conferma esplicita del testo. → Da
 **Stato client in JSON con lookup bidirezionale.**
 La cache contatti è un JSON indicizzato in entrambe le direzioni. → **Conferma §3.2** e il pattern dei file JSON locali.
 
-### 8.2 Da NON ripetere
+### 9.2 Da NON ripetere
 
 **L'instabilità dell'identità è il vero costo del bridge.**
-Buona parte della skill (§2, §3, §7 — normalizzazione numeri, LID migration, matching per suffisso, cache bidirezionale, risoluzione a più stadi) esiste **solo** per rimediare al fatto che WhatsApp ha identificatori instabili: lo stesso contatto appare come numero nei transcript vecchi e come `@lid` in quelli nuovi, e non sono riconciliabili direttamente.
+Buona parte della skill (§2, §3, §8 — normalizzazione numeri, LID migration, matching per suffisso, cache bidirezionale, risoluzione a più stadi) esiste **solo** per rimediare al fatto che WhatsApp ha identificatori instabili: lo stesso contatto appare come numero nei transcript vecchi e come `@lid` in quelli nuovi, e non sono riconciliabili direttamente.
 
 → **Lezione:** assegnare ID **stabili, numerici, mai riusati, mai migrati** fin dal giorno uno. È esattamente la scelta di §4.2, e ci risparmia in blocco un intero sottosistema di risoluzione identità.
 
@@ -280,9 +313,9 @@ Buona parte della skill (§2, §3, §7 — normalizzazione numeri, LID migration
 → **Lezione:** noi controlliamo entrambi i lati, quindi i metadati viaggiano come **campi strutturati** (mittente, `mentions[]`, `is_introduction`), mai da estrarre dal testo. **Conferma la scelta di §5.2** sulle menzioni come array. Il testo resta prosa leggibile, i dati restano dati.
 
 **Retention parziale silenziosa.**
-Il bridge sincronizza solo un sottoinsieme della cronologia, e quando un messaggio manca non è ovvio capire perché. → **Rilevante per la questione aperta §7.3**: qualunque politica di pulizia adottiamo, dev'essere **esplicita e dichiarata**, non un vuoto misterioso.
+Il bridge sincronizza solo un sottoinsieme della cronologia, e quando un messaggio manca non è ovvio capire perché. → **Rilevante per la questione aperta §8.3**: qualunque politica di pulizia adottiamo, dev'essere **esplicita e dichiarata**, non un vuoto misterioso.
 
-### 8.3 Analisi delle firme reali dei tool
+### 9.3 Analisi delle firme reali dei tool
 
 Firme effettive del bridge, e cosa ce ne facciamo.
 
@@ -326,7 +359,7 @@ In `send_message` il destinatario può essere *o* un numero di telefono *o* un J
 
 #### L'assenza che dice di più
 
-**Il bridge non ha nessun tool di lettura/non-letto.** Niente `mark_as_read`, niente contatore di non letti. Tutto lo stato di lettura vive nel file di checkpoint lato client (§8.1).
+**Il bridge non ha nessun tool di lettura/non-letto.** Niente `mark_as_read`, niente contatore di non letti. Tutto lo stato di lettura vive nel file di checkpoint lato client (§9.1).
 
 Questo **conferma §3.1** (il server non sa chi ha letto cosa) ma solleva un problema concreto: il contatore di non letti che volevamo su `list_chats` (§6) da dove esce, se il server è ignaro?
 
@@ -334,7 +367,7 @@ Questo **conferma §3.1** (il server non sa chi ha letto cosa) ma solleva un pro
 
 È il compromesso migliore tra le due esigenze, e vale la pena inserirlo nel design fin da subito.
 
-### 8.4 Cosa lasciare del tutto
+### 9.4 Cosa lasciare del tutto
 
 I vincoli specifici di WhatsApp — crittografia E2E, sync multi-device, gestione media, formati JID/LID/`@g.us` — nel nostro caso sarebbero peso morto. Il perimetro Tailscale (§2) sostituisce la crittografia, e gli ID numerici (§4.2) sostituiscono l'intero sistema JID.
 
@@ -396,11 +429,12 @@ ai-messaging/
 
 - [ ] **Continuità dell'identità (§4.3):** aggiungere `client_session_key` a `aim_register`, rendere la registrazione idempotente su quella chiave.
 - [ ] **Checkpoint sicuri:** scriverli sempre insieme al `participant_id`; scartarli all'avvio se l'ID non corrisponde.
-- [ ] **Presenza (§7.2):** `last_seen` aggiornato dal server, partecipanti inattivi mostrati come dormienti.
+- [ ] **Presenza (§8.2):** `last_seen` aggiornato dal server, partecipanti inattivi mostrati come dormienti.
+- [ ] **Controllo di versione (§7):** versione del server in ogni risposta, confronto bidirezionale, `version_warning` nel payload.
 
 **Poi:**
 
-- [ ] Decidere se la retention "per sempre" è definitiva (§7.3).
+- [ ] Decidere se la retention "per sempre" è definitiva (§8.3).
 - [ ] Valutare se esporre `GET /participants/{id}/chats` come tool.
 - [ ] UI web: assicurarsi che usi `mark_read=false` o una registrazione propria, per non far avanzare i checkpoint altrui.
 - [ ] Scrivere `.gitignore`, `.env.example` e `user_config.example.json` **prima** del primo commit.
