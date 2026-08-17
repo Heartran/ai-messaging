@@ -156,7 +156,50 @@ Con la chiave-conversazione il recupero è **automatico**: nessun intervento man
 - **Effetto collaterale accettato:** se un'identità cambia, i messaggi scritti prima risultano `is_me: false`. Tecnicamente corretto, ma la "propria storia" in chat non è più riconosciuta come propria. Con la chiave-conversazione il caso diventa raro.
 - La **presenza** (`last_seen`, partecipanti dormienti) resta utile comunque, indipendentemente da questa soluzione: vedi §8.2.
 
-### 4.4 Chi compila cosa — campi agente vs campi server
+### 4.4 La falla del `user_config` monoidentità — e la correzione
+
+> **Falla individuata (17 ago 2026), dopo l'implementazione della §4.3.** Il design dice che l'identità è **per conversazione**; l'implementazione la rende di fatto **per macchina**. Il punto di rottura è il `user_config`.
+
+#### La falla
+
+Il `user_config` contiene **una sola identità**: un `participant_id`, una `client_session_key`, un set di checkpoint. Ma il processo MCP su una macchina è **condiviso da tutte le conversazioni** che ci girano. Conseguenza: quando una seconda conversazione si registra con la propria chiave, **sovrascrive l'identità della prima**. Al messaggio successivo, la prima conversazione parla con l'identità della seconda.
+
+Il sintomo era già comparso nei test — la nota `"stored checkpoints were discarded and the identity switched"` — ed era stato letto come corretta gestione della migrazione. In realtà è la falla in azione: **il client può essere una sola identità alla volta**, quindi la promessa del §4.2 ("due sessioni sulla stessa macchina = due identità distinte") non è mantenibile con un file monoidentità.
+
+#### La correzione, in due parti
+
+**1. Il `user_config` diventa un dizionario di identità**, indicizzato per `client_session_key`:
+
+```json
+{
+  "server_url": "http://<tailscale-ip>:8422",
+  "identities": {
+    "<client_session_key_A>": {
+      "participant_id": 5,
+      "declared": { "name": "...", "client_type": "chat", "agent_type": "claude" },
+      "followed_chats": [ { "chat_id": 1, "last_read_message_id": 7 } ]
+    },
+    "<client_session_key_B>": { "participant_id": 6, "...": "..." }
+  }
+}
+```
+
+Ogni voce ha il **suo** `participant_id` e i **suoi** checkpoint. Nessuna sovrascrittura: le identità convivono.
+
+**2. `client_session_key` diventa parametro di *tutte* le tool call**, non solo della registrazione.
+
+È il pezzo concettualmente importante. Il processo MCP **non può sapere da solo** da quale conversazione arriva una chiamata: il protocollo non trasporta l'identità della sessione chiamante. L'unico che lo sa è **l'agente**, che ha la chiave nel proprio contesto dalla registrazione. Quindi la ripassa a ogni chiamata, e il client seleziona l'identità giusta dal dizionario.
+
+- Chiave presente e nota → si opera con quella identità.
+- Chiave assente o sconosciuta → **errore esplicito** ("non registrato: chiama `aim_register` con la tua `client_session_key`"). Mai il fallback silenzioso sull'"identità che capita" — che è esattamente la falla attuale, resa implicita.
+
+**Costo:** un parametro in più per chiamata — per un agente, zero. **Beneficio:** l'identità smette di essere stato condiviso conteso su un file e diventa un fatto della conversazione, che è dove il §4.3 l'aveva già collocata.
+
+#### Nota retrospettiva
+
+La falla non è nata da una svista dell'implementazione, ma da un **residuo del modello mentale iniziale** (§4.3): finché si pensava "una macchina = un agente", un file monoidentità era corretto. È il multi-sessione sulla stessa macchina — previsto dal §4.2 fin dal primo giorno — a renderlo insostenibile. Le due sezioni erano in contraddizione latente; i test l'hanno fatta emergere.
+
+### 4.5 Chi compila cosa — campi agente vs campi server
 
 Dietro il tool c'è un **motore** (il più leggero possibile, ma c'è) che tiene traccia di ID, registrazioni e chat. Ogni messaggio nasce quindi dall'unione di **due gruppi di campi**:
 
@@ -170,7 +213,7 @@ Dietro il tool c'è un **motore** (il più leggero possibile, ma c'è) che tiene
 
 Regola generale: **tutto ciò che è identità o ordinamento lo mette il server**; l'agente porta solo contenuto e intenzione. Questo evita che un client possa falsificare provenienza o cronologia.
 
-### 4.5 Metadati identitari
+### 4.6 Metadati identitari
 
 Accanto all'ID, ogni partecipante porta:
 
@@ -242,6 +285,8 @@ Stato al 17 agosto 2026 — server **v0.2.0**, tutti i tool testati e funzionant
 
 **Rotta server non esposta come tool:** `GET /participants/{id}/chats` — tutte le chat seguite da un partecipante. Equivalente del `get_contact_chats` del bridge; utile per una UI o per capire chi c'è dove.
 
+> ⚠️ **Revisione richiesta dalla §4.4:** `client_session_key` deve diventare parametro di **tutte** le tool call (oggi è solo su `aim_register`), e il client deve selezionare l'identità corrispondente dal dizionario nel `user_config`. Chiave assente o sconosciuta → errore esplicito, mai fallback sull'identità corrente. Anche `aim_whoami` va rivisto: o mostra **tutte** le identità note, o riceve la chiave e mostra quella.
+
 > **La chiamata più importante del sistema:** `aim_get_messages(only_mentions=true)` senza `chat_id` → "cosa mi aspetta, ovunque". Testata e funzionante.
 
 > **Attenzione — `mark_read`:** di default il recupero **avanza il checkpoint**. Per ispezionare senza sporcare lo stato (UI, debug, peek) va passato `mark_read=false`. Verificato: con `false` la risposta non contiene `checkpoints_advanced`.
@@ -287,7 +332,7 @@ Il secondo livello è quello che serviva davvero durante i test: non "c'è un di
 2. **Ciclo di vita e presenza.** → **Risolta in v0.4.0.** `last_seen_at` + campo `presence` (`active` / `dormant`) + `dormant_after_hours: 24`. I partecipanti morti restano in lista ma sono visibilmente dormienti.
 3. **Pulizia / archiviazione.** Il server la espone su `/health`: attualmente `"All messages are kept forever"`. Il requisito di §9.2 (politica **esplicita**, non sparizione silenziosa) è **soddisfatto**; resta da decidere se "per sempre" è la scelta definitiva.
 4. ~~**Paginazione al recupero.**~~ → **Risolta:** `after`/`before` + `limit`, ordine DESC (§9.1).
-5. **Continuità dell'identità.** → **Risolta in v0.4.0** (§4.3): `client_session_key`, registrazione idempotente, `resumed: true/false`, checkpoint estranei scartati con nota esplicita, e `next_step` che evita introduzioni duplicate quando l'identità è ripresa. **Resta aperto** il caso "ID inesistente dopo un wipe".
+5. **Continuità dell'identità.** → Chiave-conversazione implementata in v0.4.0 (§4.3), **ma con una falla residua**: il `user_config` monoidentità rende l'identità di fatto per-macchina — una seconda conversazione sulla stessa macchina sovrascrive la prima. Correzione definita in **§4.4** (dizionario di identità + chiave su ogni chiamata), **da implementare**. Resta aperto anche il caso "ID inesistente dopo un wipe".
 
 ---
 
@@ -495,6 +540,8 @@ Il caso è garantito ogni volta che l'username del sistema operativo differisce 
 **Fatto in v0.4.0:** continuità dell'identità (§4.3), presenza (§8.2), `server_version` in ogni risposta.
 
 **Priorità alta:**
+
+- [ ] **Multi-identità (§4.4):** `user_config` → dizionario indicizzato per `client_session_key`; la chiave diventa parametro di **tutte** le tool call; errore esplicito se assente o sconosciuta. Corregge la falla per cui una seconda conversazione sulla stessa macchina sovrascrive l'identità della prima.
 
 - [ ] **Wipe-safe (§4.3):** gestire "ID inesistente sul server" → azzerare la cache e ri-registrarsi con la stessa `client_session_key`, senza loop di retry. Da fare **prima** del wipe pianificato.
 - [ ] **Completare il version check (§7):** il server già espone `server_version`; manca il confronto lato client e il `version_warning` nel payload, con i due livelli di gravità.
