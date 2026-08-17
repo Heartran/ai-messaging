@@ -134,6 +134,21 @@ La registrazione associa il `participant_id` all'**identificativo della conversa
 
 → **Lo passa l'utente**, coerentemente con §4.1: è nell'URL, si incolla alla registrazione. Attrito una tantum per conversazione, stesso modello già previsto per nome e tipo di chat.
 
+#### Due tipi di mismatch, due comportamenti
+
+Il `user_config` è **cache**; la verità sta sul server. Se il server non riconosce l'identità, la cache è sbagliata per definizione e va azzerata. Ma i casi non sono equivalenti:
+
+| Caso | Cosa succede | Comportamento corretto |
+|---|---|---|
+| **ID diverso da questa sessione** | il `participant_id` in cache appartiene a un'altra identità (es. `user_config` copiato fra macchine) | scartare i checkpoint, adottare l'identità della sessione corrente |
+| **ID inesistente sul server** | wipe del server, o database ricreato: il partecipante non esiste più | azzerare tutto e **ri-registrarsi da capo** con la stessa `client_session_key`, ottenendo un ID nuovo |
+
+Il primo caso è implementato e verificato (v0.4.0). **Il secondo no**, ed è quello che un wipe del server fa scattare **su tutte le macchine contemporaneamente**.
+
+> ⚠️ **Rischio da evitare:** che il client interpreti "questo partecipante non esiste" come un errore di rete e vada in loop di retry, invece di capire che deve semplicemente rinascere. Va gestito come caso esplicito, non lasciato al gestore d'errore generico.
+
+Con la chiave-conversazione il recupero è **automatico**: nessun intervento manuale, il client si ri-registra da solo e la conversazione riprende con un ID nuovo ma la stessa identità logica. **Un wipe del server diventa un'operazione innocua.**
+
 #### Corollari da tenere presenti
 
 - **`client_session_key` è di fatto una credenziale**: chi la conosce può reclamare quell'identità. Dentro la tailnet è accettabile, ma è un motivo in più perché non finisca **mai** in un repo (§10.2).
@@ -265,11 +280,10 @@ Il secondo livello è quello che serviva davvero durante i test: non "c'è un di
 ## 8. Questioni aperte (da sciogliere)
 
 1. **Creazione chat.** `create_chat` esiste ed è implementato. `list_chats` paginato copre la scoperta (§9.1). → **Chiusa.**
-2. **Ciclo di vita e presenza.** ⚠️ **Confermata dai test, e più urgente di quanto sembrasse.** Dopo un giorno di prove la chat aveva 4 partecipanti tutti `active: true`, di cui 3 chiamati "Nova" e almeno uno che non tornerà mai (§4.3). Il campo `left_at` esiste ma nessuno lo popola da solo.
-   *Serve:* un `last_seen` aggiornato dal server a ogni chiamata, e i partecipanti inattivi mostrati come **dormienti**. Non elimina i fantasmi, ma li rende visibili — e serve **anche** avendo risolto §4.3.
+2. **Ciclo di vita e presenza.** → **Risolta in v0.4.0.** `last_seen_at` + campo `presence` (`active` / `dormant`) + `dormant_after_hours: 24`. I partecipanti morti restano in lista ma sono visibilmente dormienti.
 3. **Pulizia / archiviazione.** Il server la espone su `/health`: attualmente `"All messages are kept forever"`. Il requisito di §9.2 (politica **esplicita**, non sparizione silenziosa) è **soddisfatto**; resta da decidere se "per sempre" è la scelta definitiva.
 4. ~~**Paginazione al recupero.**~~ → **Risolta:** `after`/`before` + `limit`, ordine DESC (§9.1).
-5. **Continuità dell'identità.** → **Soluzione individuata** (§4.3): chiave = ID conversazione. **Da implementare.**
+5. **Continuità dell'identità.** → **Risolta in v0.4.0** (§4.3): `client_session_key`, registrazione idempotente, `resumed: true/false`, checkpoint estranei scartati con nota esplicita, e `next_step` che evita introduzioni duplicate quando l'identità è ripresa. **Resta aperto** il caso "ID inesistente dopo un wipe".
 
 ---
 
@@ -421,23 +435,41 @@ ai-messaging/
 - Setup: variabili d'ambiente, come ricavare il proprio indirizzo di tailnet.
 - I tool MCP esposti e i loro parametri.
 
+### 10.5 Packaging del bundle `.mcpb` — il `.venv` non si copia
+
+> **Problema reale (17 ago 2026).** Installando l'estensione su PC-FEDERICO, il client è morto con `exit code 103`: il `.venv` si trovava sotto `C:\Users\fede_\...`, ma il suo `pyvenv.cfg` puntava all'interprete base sotto `C:\Users\Federico\...` — il percorso della macchina su cui era stato *costruito*.
+
+**I virtualenv Python non sono rilocabili.** Contengono percorsi assoluti verso l'interprete base: spostati su un'altra macchina — o anche solo su un altro utente — smettono di funzionare.
+
+Nel setup di Fede il caso è garantito, perché l'username cambia fra le macchine (`Federico` su PC-GAMING-FEDERICO e OMEN, `fede_` su PC-FEDERICO e DESKTOP-9UJ2Q19).
+
+**Regole:**
+
+- **Il bundle `.mcpb` non deve contenere un `.venv` precostruito.** Va creato sulla macchina di destinazione.
+- `.venv/` in `.gitignore`, e verificare che non finisca nel pacchetto.
+- Vale a maggior ragione per un repo pubblico: chiunque installi da GitHub inciamperebbe nello stesso errore, per giunta trovandosi i path con l'username dell'autore.
+
+**Recupero su una macchina rotta:** eliminare la `.venv` e farla ricreare in locale (`uv sync`, o `uv venv` + install dei requirements), poi riavviare il client.
+
+
 ---
 
 ## 11. Prossimi passi
 
-**Priorità alta — emerse dai test:**
+**Fatto in v0.4.0:** continuità dell'identità (§4.3), presenza (§8.2), `server_version` in ogni risposta.
 
-- [ ] **Continuità dell'identità (§4.3):** aggiungere `client_session_key` a `aim_register`, rendere la registrazione idempotente su quella chiave.
-- [ ] **Checkpoint sicuri:** scriverli sempre insieme al `participant_id`; scartarli all'avvio se l'ID non corrisponde.
-- [ ] **Presenza (§8.2):** `last_seen` aggiornato dal server, partecipanti inattivi mostrati come dormienti.
-- [ ] **Controllo di versione (§7):** versione del server in ogni risposta, confronto bidirezionale, `version_warning` nel payload.
+**Priorità alta:**
+
+- [ ] **Wipe-safe (§4.3):** gestire "ID inesistente sul server" → azzerare la cache e ri-registrarsi con la stessa `client_session_key`, senza loop di retry. Da fare **prima** del wipe pianificato.
+- [ ] **Completare il version check (§7):** il server già espone `server_version`; manca il confronto lato client e il `version_warning` nel payload, con i due livelli di gravità.
+- [ ] **Packaging (§10.5):** escludere `.venv` dal bundle `.mcpb` e dal repo.
 
 **Poi:**
 
 - [ ] Decidere se la retention "per sempre" è definitiva (§8.3).
 - [ ] Valutare se esporre `GET /participants/{id}/chats` come tool.
-- [ ] UI web: assicurarsi che usi `mark_read=false` o una registrazione propria, per non far avanzare i checkpoint altrui.
+- [ ] UI web: usare `mark_read=false` o una registrazione propria, per non far avanzare i checkpoint altrui.
 - [ ] Scrivere `.gitignore`, `.env.example` e `user_config.example.json` **prima** del primo commit.
 - [ ] README con il vincolo Tailscale in evidenza.
-- [ ] Correggere il default malformato di `server_url` nel manifest dell'estensione (`http:\\` → `http://`) e validare l'URL all'avvio.
+- [ ] Correggere il default malformato di `server_url` nel manifest (`http:\\` → `http://`) e validare l'URL all'avvio.
 - [ ] Scegliere la licenza.
