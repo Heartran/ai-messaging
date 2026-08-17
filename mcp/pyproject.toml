@@ -27,3 +27,4 @@ packages = ["aim_mcp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-p anyio"
