@@ -269,6 +269,96 @@ async def test_list_participants_marks_me(tools, other_tools):
     assert by_name["Bob"]["is_me"] is False
 
 
+async def test_register_with_key_resumes_identity_across_clients(
+    tmp_path, server_app
+):
+    from tests.conftest import make_tools
+
+    first_machine = make_tools(tmp_path, server_app, name="m1")
+    resumed_machine = make_tools(tmp_path, server_app, name="m2")
+    key = "https://claude.ai/chat/aaaa-bbbb-cccc"
+
+    first = await first_machine.register(
+        "Nova", "chat", "claude", machine="PC-GAMING", client_session_key=key
+    )
+    assert first["resumed"] is False
+
+    # Same conversation resumed from a different machine, fresh user_config.
+    second = await resumed_machine.register(
+        "Nova", "chat", "claude", machine="DESKTOP-OTHER", client_session_key=key
+    )
+    assert second["resumed"] is True
+    assert second["participant_id"] == first["participant_id"]
+    # The key is remembered locally for future restarts.
+    assert resumed_machine.config.declared["client_session_key"] == key
+
+
+async def test_copied_user_config_discards_foreign_checkpoints(
+    tmp_path, server_app, other_tools
+):
+    from tests.conftest import make_tools
+
+    await register(other_tools, name="Ghost")  # takes participant ID 1
+
+    tools = make_tools(tmp_path, server_app, name="copied")
+    # Simulate a user_config copied from another identity: its checkpoints
+    # claim messages were read that this identity never saw (§4.3).
+    tools.config.participant_id = 1
+    tools.config.upsert_followed(1, "general")
+    tools.config.followed_chats[1].last_read_message_id = 99
+    tools.config.last_checked_at = "2026-08-17T00:00:00.000000Z"
+
+    response = await tools.register(
+        "Nova", "chat", "claude", machine="M",
+        client_session_key="conversation-fresh",
+    )
+    assert response["participant_id"] == 2
+    assert "discarded" in response["note"]
+    assert tools.config.followed_chats == {}
+    assert tools.config.last_checked_at is None
+    assert tools.config.participant_id == 2
+
+
+async def test_register_with_key_against_old_server_fails_loudly(tmp_path):
+    import httpx as _httpx
+
+    from aim_mcp.client import AimClient
+    from aim_mcp.tools import AimTools
+
+    def old_server(request):  # pre-0.3.0: no "resumed" in the response
+        return _httpx.Response(201, json={
+            "participant_id": 7, "name": "Nova", "machine": "M",
+            "client_type": "chat", "agent_type": "claude",
+            "registered_at": "2026-08-17T00:00:00.000000Z",
+            "next_step": "…",
+        })
+
+    config = UserConfig.load(tmp_path / "cfg.json")
+    config.base_url = "http://aim.test"
+    tools = AimTools(
+        config,
+        AimClient("http://aim.test", transport=_httpx.MockTransport(old_server)),
+    )
+    with pytest.raises(AimServerError, match="0.3.0"):
+        await tools.register(
+            "Nova", "chat", "claude", machine="M",
+            client_session_key="conversation-x",
+        )
+    assert tools.config.registered is False  # no identity was adopted
+
+
+def test_base_url_normalization_repairs_manifest_typo():
+    from aim_mcp.server import normalize_base_url
+
+    assert normalize_base_url("http:\\\\100.64.0.1:8422") == "http://100.64.0.1:8422"
+    assert normalize_base_url("http:\\100.64.0.1:8422") == "http://100.64.0.1:8422"
+    assert normalize_base_url("http://100.64.0.1:8422/") == "http://100.64.0.1:8422"
+    with pytest.raises(RuntimeError, match="not a valid"):
+        normalize_base_url("100.64.0.1:8422")
+    with pytest.raises(RuntimeError, match="not a valid"):
+        normalize_base_url("ftp://100.64.0.1")
+
+
 async def test_stale_server_is_reported_loudly(server_app):
     # A bare "Not Found" 404 means the route itself is missing — a server
     # build older than this client (the failure mode of the first live

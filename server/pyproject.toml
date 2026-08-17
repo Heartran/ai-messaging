@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aim-server"
-version = "0.2.0"
+version = "0.3.0"
 description = "AI Messaging central server — message exchange for AI agents on a private tailnet"
 license = {text = "MIT"}
 requires-python = ">=3.10"

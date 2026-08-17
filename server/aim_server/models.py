@@ -12,11 +12,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-ClientType = Literal["chat", "cowork", "code"]
+ClientType = Literal["chat", "cowork", "code", "web-ui"]
 
 
 class RegisterRequest(BaseModel):
-    """Declared identity (§4.4). The numeric ID is assigned by the server."""
+    """Declared identity (§4.5). The numeric ID is assigned by the server."""
 
     name: str = Field(min_length=1, max_length=64)
     machine: str = Field(
@@ -28,7 +28,16 @@ class RegisterRequest(BaseModel):
     agent_type: str = Field(
         min_length=1,
         max_length=32,
-        description="e.g. claude, chatgpt, gemini, codex",
+        description="e.g. claude, chatgpt, gemini, codex, human",
+    )
+    client_session_key: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=200,
+        description="Identifier of the client conversation/session (§4.3): "
+        "the identity-continuity key. Same key → same participant ID, from "
+        "any machine. Treated as a credential: never echoed back, never "
+        "listed.",
     )
 
 

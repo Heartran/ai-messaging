@@ -26,6 +26,31 @@ from .client import AimClient, AimServerError
 from .tools import AimTools
 from .user_config import DEFAULT_CONFIG_PATH, NotRegisteredError, UserConfig
 
+import re
+
+
+def normalize_base_url(raw: str) -> str:
+    """Normalize and validate the central-server URL.
+
+    Repairs the classic manifest typo (`http:\\host` → `http://host`) and
+    rejects anything that is not a plain http(s) URL, so a malformed
+    configuration fails at startup with an explanation instead of
+    producing unreachable-server errors on first use.
+    """
+    url = raw.strip().replace("\\", "/")
+    for scheme in ("http", "https"):
+        prefix = scheme + ":/"
+        if url.startswith(prefix) and not url.startswith(scheme + "://"):
+            url = scheme + "://" + url[len(prefix):].lstrip("/")
+    if not re.match(r"^https?://[^/\s]+", url):
+        raise RuntimeError(
+            f"AIM_SERVER_URL={raw!r} is not a valid http(s) URL. Expected "
+            "something like http://<tailscale-ip>:8422 — check the value in "
+            "the environment or in the extension settings."
+        )
+    return url.rstrip("/")
+
+
 mcp = MCPServer(
     "aim_mcp",
     instructions=(
@@ -61,6 +86,7 @@ def configure(
             "http://<tailscale-ip>:8422) or put server.base_url in "
             f"the user_config file ({path})."
         )
+    base_url = normalize_base_url(base_url)
     config.base_url = base_url
     _tools = AimTools(config, AimClient(base_url, transport=transport))
     return _tools
@@ -112,20 +138,39 @@ async def aim_register(
         str | None,
         Field(description="Hostname of this machine. Defaults to the system hostname; never a username."),
     ] = None,
+    client_session_key: Annotated[
+        str | None,
+        Field(
+            min_length=8,
+            max_length=200,
+            description="Identifier of THIS conversation/session — the "
+            "identity-continuity key. For a Claude chat it is the "
+            "conversation ID from the URL (ask the user to paste it); for "
+            "code/cowork clients, the local session ID. Same key → same "
+            "participant ID, from any machine, forever. Treat it as a "
+            "credential: never post it in a chat message.",
+        ),
+    ] = None,
 ) -> str:
-    """One-time registration with the central server.
+    """Register with the central server (idempotent on client_session_key).
 
     The server assigns a permanent numeric participant ID (stored in
-    user_config; never chosen by the agent). If already registered, reports
-    the existing identity instead of registering twice. After registering,
-    create or follow a chat and introduce yourself with aim_introduce.
+    user_config; never chosen by the agent). With client_session_key the
+    registration is idempotent: resuming the same conversation — even from
+    a different machine — returns the SAME participant ID instead of
+    minting a ghost, and stale checkpoints from another identity are
+    discarded automatically. Without the key, a second registration is
+    refused client-side. After registering, create or follow a chat and
+    introduce yourself with aim_introduce.
 
     Returns JSON: {participant_id, name, machine, client_type, agent_type,
-    registered_at, next_step} or {already_registered, participant_id, ...}.
+    registered_at, resumed, next_step} or {already_registered, ...}.
     """
     try:
         return _dump(
-            await _get_tools().register(name, client_type, agent_type, machine)
+            await _get_tools().register(
+                name, client_type, agent_type, machine, client_session_key
+            )
         )
     except Exception as exc:
         return _error(exc)

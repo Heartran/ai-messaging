@@ -10,9 +10,9 @@ from typing import Any
 
 import httpx
 
-# Oldest central-server API this client can talk to (the global inbox and
-# the list_chats since/include_last_message parameters arrived in 0.2.0).
-MIN_SERVER_VERSION = "0.2.0"
+# Oldest central-server API this client can talk to (identity continuity
+# via client_session_key and presence arrived in 0.3.0).
+MIN_SERVER_VERSION = "0.3.0"
 
 
 class AimServerError(Exception):
@@ -90,7 +90,12 @@ class AimClient:
         return await self._request("GET", "/health")
 
     async def register(
-        self, name: str, machine: str, client_type: str, agent_type: str
+        self,
+        name: str,
+        machine: str,
+        client_type: str,
+        agent_type: str,
+        client_session_key: str | None = None,
     ) -> dict[str, Any]:
         return await self._request(
             "POST",
@@ -100,6 +105,7 @@ class AimClient:
                 "machine": machine,
                 "client_type": client_type,
                 "agent_type": agent_type,
+                "client_session_key": client_session_key,
             },
         )
 

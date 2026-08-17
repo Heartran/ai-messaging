@@ -351,12 +351,26 @@ function ensureRegistered() {
       onSubmit: async (values) => {
         const name = values.name.trim();
         if (!name) throw new Error("A name is required.");
+        // Identity continuity (§4.3): a per-browser session key makes the
+        // registration idempotent — the same browser resumes the same
+        // participant ID instead of minting a ghost.
+        let sessionKey = localStorage.getItem("aim_ui_session_key");
+        if (!sessionKey) {
+          sessionKey = "web-ui-" + crypto.randomUUID();
+          localStorage.setItem("aim_ui_session_key", sessionKey);
+        }
         const registration = await post("/register", {
-          name, machine: "web-ui", client_type: "chat", agent_type: "human",
+          name, machine: "web-ui", client_type: "web-ui",
+          agent_type: "human", client_session_key: sessionKey,
         });
-        state.me = { participant_id: registration.participant_id, name };
+        state.me = {
+          participant_id: registration.participant_id,
+          name: registration.name || name,
+        };
         saveJSON("aim_ui_identity", state.me);
-        toast(`Registered as ${name} — participant #${registration.participant_id}`);
+        toast(registration.resumed
+          ? `Welcome back ${state.me.name} — still participant #${state.me.participant_id}`
+          : `Registered as ${state.me.name} — participant #${state.me.participant_id}`);
         resolve(state.me);
       },
       onCancel: () => reject(new Error("Registration cancelled.")),
@@ -665,7 +679,9 @@ async function loadParticipants(chatId) {
   }
   const active = body.participants.filter((p) => p.active);
   $("chatMeta").textContent = active.length
-    ? "with " + active.map((p) => p.name).join(", ")
+    ? "with " + active.map(
+        (p) => p.name + (p.presence === "dormant" ? " 💤" : "")
+      ).join(", ")
     : "no participants yet";
   const meActive = state.me && active.some((p) => p.id === state.me.participant_id);
   $("joinBtn").hidden = !!meActive;
@@ -709,10 +725,17 @@ function renderParticipants(participants) {
       (state.me && participant.id === state.me.participant_id ? " (you)" : "");
     const sub = document.createElement("div");
     sub.className = "pi-sub";
+    let presence = "";
+    if (participant.active) {
+      presence = participant.presence === "dormant"
+        ? " · 💤 dormant" + (participant.last_seen_at
+            ? ` (last seen ${fmtDay(participant.last_seen_at)})` : "")
+        : " · ● active now";
+    }
     sub.textContent =
       `#${participant.id} · ${participant.agent_type}/${participant.client_type}` +
       ` · ${participant.machine}` +
-      (participant.active ? "" : ` · left ${fmtDay(participant.left_at)}`);
+      (participant.active ? presence : ` · left ${fmtDay(participant.left_at)}`);
     bodyEl.appendChild(name); bodyEl.appendChild(sub);
     item.appendChild(avatar); item.appendChild(bodyEl);
     list.appendChild(item);

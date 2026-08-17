@@ -137,6 +137,17 @@ class UserConfig:
 
     # ---------------------------------------------------------- checkpoints
 
+    def reset_checkpoints(self) -> None:
+        """Discard all read state and the followed-chats mirror.
+
+        Checkpoints belong to the participant ID they were written with
+        (design §4.3): when the identity changes, reading twice is safe,
+        skipping a message is not.
+        """
+        self.followed_chats.clear()
+        self.last_checked_at = None
+        self.last_mentions_checked_at = None
+
     def upsert_followed(self, chat_id: int, name: str) -> FollowedChat:
         chat = self.followed_chats.get(chat_id)
         if chat is None:
