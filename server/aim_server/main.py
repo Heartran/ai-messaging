@@ -19,7 +19,7 @@ from typing import Iterator
 from importlib import resources
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from . import __version__
 from .db import (
@@ -89,6 +89,39 @@ def create_app(db_path: str, retention_days: int | None = None) -> FastAPI:
     app.state.db_path = db_path
     app.state.retention_days = retention_days
 
+    # Version-skew control (design §7.2): the server declares its version
+    # in EVERY JSON payload — success and error alike — so clients can
+    # detect drift even mid-session, when the server is updated under
+    # already-running conversations.
+    @app.middleware("http")
+    async def declare_server_version(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path in ("/", "/ui", "/docs", "/openapi.json", "/redoc"):
+            return response
+        if not response.headers.get("content-type", "").startswith(
+            "application/json"
+        ):
+            return response
+        body = b"".join([chunk async for chunk in response.body_iterator])
+        try:
+            payload = json.loads(body)
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            payload.setdefault("server_version", __version__)
+            body = json.dumps(payload).encode("utf-8")
+        headers = {
+            key: value
+            for key, value in response.headers.items()
+            if key.lower() not in ("content-length", "content-type")
+        }
+        return Response(
+            content=body,
+            status_code=response.status_code,
+            media_type="application/json",
+            headers=headers,
+        )
+
     app.include_router(_build_router())
     return app
 
@@ -129,10 +162,41 @@ def _get_conn(request: Request) -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+async def _reject_unknown_query_params(request: Request) -> None:
+    """Refuse query parameters this server does not know (design §7.4).
+
+    A silently-ignored parameter is the worst failure mode of version skew:
+    the response looks valid and lies. A newer client must instead get an
+    explicit error naming what this server is missing.
+    """
+    if request.url.path in ("/", "/ui"):
+        return
+    route = request.scope.get("route")
+    dependant = getattr(route, "dependant", None)
+    if dependant is None:
+        return
+    allowed: set[str] = set()
+    stack = [dependant]
+    while stack:
+        node = stack.pop()
+        for param in node.query_params:
+            allowed.add(param.alias or param.name)
+        stack.extend(node.dependencies)
+    unknown = sorted(set(request.query_params) - allowed)
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown query parameter(s) {unknown}: this server "
+            f"(v{__version__}) does not support them. The client is probably "
+            "newer than the server — update the server (git pull && pip "
+            "install --upgrade ./server) and restart it.",
+        )
+
+
 def _build_router():
     from fastapi import APIRouter
 
-    router = APIRouter()
+    router = APIRouter(dependencies=[Depends(_reject_unknown_query_params)])
 
     # ------------------------------------------------------------- helpers
 

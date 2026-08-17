@@ -115,6 +115,23 @@ sender metadata) so no client can forge provenance or history.
 
 Interactive OpenAPI docs are served at `/docs` once the server runs.
 
+### Version-skew control
+
+Client and server are released together but updated separately, so drift
+happens — and its worst symptom is a **silently ignored parameter**, where
+the response looks valid and lies. The system defends both directions:
+
+- the server declares `server_version` in **every JSON response**, success
+  and error alike;
+- the server **rejects** unknown query parameters and unknown body fields
+  with an explicit error naming them, instead of ignoring them;
+- the MCP client compares the declared version with the one it targets and
+  adds a **`version_warning` field to the payload** (not a log) on any
+  mismatch — including when the version *changes mid-session* because the
+  server was updated under a running conversation;
+- a client feature the server predates entirely (missing route) fails
+  loudly with the recovery commands.
+
 ## Web UI
 
 The server also serves a WhatsApp-like web UI at **`/ui`** (the root

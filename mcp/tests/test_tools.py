@@ -347,6 +347,45 @@ async def test_register_with_key_against_old_server_fails_loudly(tmp_path):
     assert tools.config.registered is False  # no identity was adopted
 
 
+async def test_no_version_warning_when_versions_match(tools):
+    await register(tools)
+    listing = await tools.list_chats()
+    assert "version_warning" not in listing
+    assert listing["server_version"]
+
+
+async def test_version_skew_warnings_both_directions_and_midsession_change():
+    import httpx as _httpx
+
+    from aim_mcp.client import EXPECTED_SERVER_VERSION, AimClient
+
+    versions = iter([None, "0.1.0", EXPECTED_SERVER_VERSION, "9.9.9"])
+
+    def server(request):
+        version = next(versions)
+        payload = {"status": "ok"}
+        if version is not None:
+            payload["server_version"] = version
+        return _httpx.Response(200, json=payload)
+
+    client = AimClient(
+        "http://aim.test", transport=_httpx.MockTransport(server)
+    )
+    silent = await client._request("GET", "/health")  # pre-§7 server
+    assert "predates" in silent["version_warning"]
+
+    behind = await client._request("GET", "/health")  # server older
+    assert "Update the server" in behind["version_warning"]
+
+    matched = await client._request("GET", "/health")  # aligned — but it
+    # just changed mid-session, and that alone is worth a heads-up (§7.2)
+    assert "changed mid-session" in matched["version_warning"]
+
+    ahead = await client._request("GET", "/health")  # server newer
+    assert "Update this client" in ahead["version_warning"]
+    assert "changed mid-session" in ahead["version_warning"]
+
+
 def test_base_url_normalization_repairs_manifest_typo():
     from aim_mcp.server import normalize_base_url
 

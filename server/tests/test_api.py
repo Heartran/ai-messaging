@@ -775,6 +775,66 @@ def test_purge_old_messages_deletes_and_cascades(client, tmp_path):
         conn.close()
 
 
+def test_every_json_response_declares_the_server_version(client):
+    from aim_server import __version__
+
+    pid = register(client)["participant_id"]
+    chat_id = client.post(
+        "/chats", json={"participant_id": pid, "name": "general"}
+    ).json()["chat_id"]
+
+    responses = [
+        client.get("/health"),
+        client.get("/chats"),
+        client.get(f"/chats/{chat_id}/messages"),
+        client.get(f"/chats/{chat_id}/participants"),
+        client.get(f"/participants/{pid}/chats"),
+        client.get("/messages", params={"participant_id": pid}),
+    ]
+    for response in responses:
+        assert response.json()["server_version"] == __version__, response.url
+
+    # Errors declare it too (§7.2: every response, so skew is diagnosable
+    # exactly when something goes wrong).
+    error = client.get("/chats/999/messages")
+    assert error.status_code == 404
+    assert error.json()["server_version"] == __version__
+
+
+def test_unknown_query_params_are_rejected_not_ignored(client):
+    pid = register(client)["participant_id"]
+    chat_id = client.post(
+        "/chats", json={"participant_id": pid, "name": "general"}
+    ).json()["chat_id"]
+
+    response = client.get(
+        f"/chats/{chat_id}/messages", params={"include_context": "3"}
+    )
+    assert response.status_code == 422
+    assert "include_context" in response.json()["detail"]
+    assert "newer than the server" in response.json()["detail"]
+
+    # Known params still pass, obviously.
+    assert client.get(
+        f"/chats/{chat_id}/messages", params={"limit": 5}
+    ).status_code == 200
+
+
+def test_unknown_body_fields_are_rejected_not_ignored(client):
+    response = client.post(
+        "/register",
+        json={
+            "name": "X",
+            "machine": "M",
+            "client_type": "chat",
+            "agent_type": "claude",
+            "some_future_field": True,
+        },
+    )
+    assert response.status_code == 422
+    assert "some_future_field" in response.text
+
+
 def test_ui_is_served_from_the_same_bind(client):
     page = client.get("/ui")
     assert page.status_code == 200
