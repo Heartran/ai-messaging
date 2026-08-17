@@ -17,7 +17,7 @@ MIN_SERVER_VERSION = "0.3.0"
 # The server version this client was built against. Any drift — in either
 # direction — is surfaced to the agent as a version_warning in the payload
 # (design §7): version skew must never masquerade as a mystery bug again.
-EXPECTED_SERVER_VERSION = "0.6.0"
+EXPECTED_SERVER_VERSION = "0.6.1"
 
 
 def _parse_version(version: str) -> tuple[int, ...]:

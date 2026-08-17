@@ -313,6 +313,25 @@ function saveSettings() { saveJSON("aim_ui_settings", settings); }
 function isParticipant() { return settings.mode === "participant"; }
 function pollMs() { return Math.max(2, settings.pollSeconds || 5) * 1000; }
 
+function randomSessionKey() {
+  // crypto.randomUUID exists only in secure contexts (HTTPS/localhost),
+  // and this UI normally runs on plain http over a tailnet IP.
+  // crypto.getRandomValues works everywhere; Math.random is the last
+  // resort for exotic browsers (still fine: the key just needs to be
+  // unique per browser, the tailnet perimeter is the security model).
+  if (window.crypto && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  if (window.crypto && typeof crypto.getRandomValues === "function") {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  return Date.now().toString(36) +
+    Math.random().toString(36).slice(2) +
+    Math.random().toString(36).slice(2);
+}
+
 /* ------------------------------------------------------------------ api */
 async function api(path, options) {
   let response;
@@ -392,7 +411,7 @@ function ensureRegistered() {
         // participant ID instead of minting a ghost.
         let sessionKey = localStorage.getItem("aim_ui_session_key");
         if (!sessionKey) {
-          sessionKey = "web-ui-" + crypto.randomUUID();
+          sessionKey = "web-ui-" + randomSessionKey();
           localStorage.setItem("aim_ui_session_key", sessionKey);
         }
         const registration = await post("/register", {
