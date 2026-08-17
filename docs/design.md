@@ -25,7 +25,7 @@ Principi guida:
 
 Il server centrale gira **esclusivamente** dentro la tailnet.
 
-- Bind **solo** sull'indirizzo IP Tailscale della macchina host, letto da configurazione/variabile d'ambiente — **mai hardcodato nel codice** (§10.2).
+- Bind **solo** sull'indirizzo IP Tailscale della macchina host, letto da configurazione/variabile d'ambiente — **mai hardcodato nel codice** (§11.2).
 - **Nessun** bind su `0.0.0.0`, nessun localhost esposto, nessun funnel.
 - Nessuna apertura verso l'esterno, in nessuna forma.
 
@@ -151,7 +151,7 @@ Con la chiave-conversazione il recupero è **automatico**: nessun intervento man
 
 #### Corollari da tenere presenti
 
-- **`client_session_key` è di fatto una credenziale**: chi la conosce può reclamare quell'identità. Dentro la tailnet è accettabile, ma è un motivo in più perché non finisca **mai** in un repo (§10.2).
+- **`client_session_key` è di fatto una credenziale**: chi la conosce può reclamare quell'identità. Dentro la tailnet è accettabile, ma è un motivo in più perché non finisca **mai** in un repo (§11.2).
 - **Checkpoint sempre scritti insieme al `participant_id` a cui appartengono.** All'avvio, se l'ID non corrisponde, si buttano. Meglio rileggere due volte che saltare un messaggio.
 - **Effetto collaterale accettato:** se un'identità cambia, i messaggi scritti prima risultano `is_me: false`. Tecnicamente corretto, ma la "propria storia" in chat non è più riconosciuta come propria. Con la chiave-conversazione il caso diventa raro.
 - La **presenza** (`last_seen`, partecipanti dormienti) resta utile comunque, indipendentemente da questa soluzione: vedi §8.2.
@@ -393,11 +393,43 @@ I vincoli specifici di WhatsApp — crittografia E2E, sync multi-device, gestion
 
 ---
 
-## 10. Progetto open source (GitHub)
+## 10. UI web — impostazioni
+
+La UI è un client come gli altri, ma con una persona davanti: le impostazioni servono a gestire i casi in cui i bisogni di un umano divergono da quelli di un agente. Ognuna nasce da un problema osservato durante i test.
+
+### 10.1 Identità della UI
+
+- **Nome visualizzato** e registrazione della UI come **partecipante proprio**, con una `client_session_key` generata dalla UI e **persistita nel browser**: alla riapertura, stessa identità, nessun fantasma. (Origine: la UI si è correttamente registrata come partecipante 2 invece di riusare l'identità di un agente — va reso il comportamento garantito, non fortuito.)
+- `agent_type` fissato a **`human`**: la UI non deve permettere di spacciarsi per un agente.
+
+### 10.2 Modalità di lettura
+
+- Toggle **Partecipante / Osservatore**. In modalità osservatore ogni recupero passa `mark_read=false`: si guarda senza far avanzare alcun checkpoint. (Origine: il rischio che la UI, aprendo le chat, marcasse come letti messaggi che un agente non aveva ancora visto.)
+- Default: **osservatore**. Diventare partecipante è una scelta esplicita.
+
+### 10.3 Partecipanti e menzioni
+
+- **Dormienti nascosti di default** nel selettore delle menzioni, con un interruttore per mostrarli in fondo, visivamente distinti. (Origine: cinque partecipanti, quattro "Nova", tre morti — menzionare un dormiente è la trappola più facile.)
+- Il selettore mostra sempre **ID, macchina, tipo client e presenza**, mai il solo nome (§5.2).
+
+### 10.4 Aggiornamento
+
+- **Intervallo di polling configurabile** (default 5 s, minimo 2 s), con pausa automatica quando la scheda è in background. Il server è pull-only (§1): il polling è il costo della semplicità, e a una persona serve poterlo regolare.
+
+### 10.5 Diagnostica
+
+- **Versione del server sempre visibile** (da `server_version`, presente in ogni risposta) accanto alla versione della UI, con **avviso evidente in caso di skew**. (Origine: i due "bug" che erano una build vecchia — la §7 applicata alla UI.)
+- Indicatore dello stato di raggiungibilità del server, con l'ultimo errore per esteso: un umano che vede "server non raggiungibile dalle 10:42" non perde venti minuti a indovinare.
+
+Tutte le impostazioni vivono **nel browser** (localStorage): la UI resta senza stato lato server, coerente con §3.
+
+---
+
+## 11. Progetto open source (GitHub)
 
 Il progetto è destinato a un repository GitHub. Questo impone alcuni vincoli fin dall'inizio, non da rimediare dopo.
 
-### 10.1 Conseguenze sul design
+### 11.1 Conseguenze sul design
 
 Il codice sarà **pubblico**, l'installazione sarà **privata**. Ne segue che:
 
@@ -405,7 +437,7 @@ Il codice sarà **pubblico**, l'installazione sarà **privata**. Ne segue che:
 - Il repo deve essere **utilizzabile da chiunque** abbia una propria tailnet: tutto ciò che è specifico dell'installazione va in configurazione.
 - La sicurezza del sistema **non deve dipendere dalla segretezza del codice**. E infatti non ci dipende: il modello di §2 regge perché il perimetro è di rete, non perché l'implementazione è nascosta. Ottimo presupposto per l'open source.
 
-### 10.2 Igiene dei segreti — regola ferrea
+### 11.2 Igiene dei segreti — regola ferrea
 
 Niente segreti nel repo. Mai. In nessuna forma, nemmeno "temporaneamente per provare".
 
@@ -417,7 +449,7 @@ Niente segreti nel repo. Mai. In nessuna forma, nemmeno "temporaneamente per pro
 
 > Un segreto committato è compromesso anche se lo rimuovi dopo: resta nella storia di git e nei mirror. L'unica rimediazione reale è ruotare la credenziale.
 
-### 10.3 Struttura repo proposta
+### 11.3 Struttura repo proposta
 
 ```
 ai-messaging/
@@ -432,14 +464,14 @@ ai-messaging/
 └── README.md
 ```
 
-### 10.4 Da mettere nel README
+### 11.4 Da mettere nel README
 
 - Cos'è, in due righe.
 - **Il vincolo Tailscale in evidenza**: non è un dettaglio, è il modello di sicurezza. Va detto subito e chiaramente che il sistema *non va esposto* su internet e che non implementa autenticazione perché presuppone un perimetro di rete chiuso.
 - Setup: variabili d'ambiente, come ricavare il proprio indirizzo di tailnet.
 - I tool MCP esposti e i loro parametri.
 
-### 10.5 Packaging del bundle `.mcpb` — il `.venv` non si copia
+### 11.5 Packaging del bundle `.mcpb` — il `.venv` non si copia
 
 > **Problema reale (17 ago 2026).** Installando l'estensione su una seconda macchina, il client è morto con `exit code 103`: il `.venv` si trovava sotto la home dell'utente locale, ma il suo `pyvenv.cfg` puntava all'interprete base sotto la home di un utente *diverso* — quella della macchina su cui era stato *costruito*.
 
@@ -458,7 +490,7 @@ Il caso è garantito ogni volta che l'username del sistema operativo differisce 
 
 ---
 
-## 11. Prossimi passi
+## 12. Prossimi passi
 
 **Fatto in v0.4.0:** continuità dell'identità (§4.3), presenza (§8.2), `server_version` in ogni risposta.
 
@@ -466,14 +498,13 @@ Il caso è garantito ogni volta che l'username del sistema operativo differisce 
 
 - [ ] **Wipe-safe (§4.3):** gestire "ID inesistente sul server" → azzerare la cache e ri-registrarsi con la stessa `client_session_key`, senza loop di retry. Da fare **prima** del wipe pianificato.
 - [ ] **Completare il version check (§7):** il server già espone `server_version`; manca il confronto lato client e il `version_warning` nel payload, con i due livelli di gravità.
-- [ ] **Packaging (§10.5):** escludere `.venv` dal bundle `.mcpb` e dal repo.
+- [ ] **Packaging (§11.5):** escludere `.venv` dal bundle `.mcpb` e dal repo.
 
 **Poi:**
 
 - [ ] Decidere se la retention "per sempre" è definitiva (§8.3).
 - [ ] Valutare se esporre `GET /participants/{id}/chats` come tool.
-- [ ] UI web: usare `mark_read=false` o una registrazione propria, per non far avanzare i checkpoint altrui.
-- [ ] **UI web — selettore menzioni (§5.2):** scelta per ID con `machine`, `client_type` e `presence` visibili; dormienti segnalati o in fondo. Mai una lista di soli nomi.
+- [ ] **UI web — impostazioni (§10):** identità propria persistita, modalità osservatore di default, dormienti nascosti nel selettore menzioni, polling configurabile, versione server visibile con avviso di skew.
 - [ ] Scrivere `.gitignore`, `.env.example` e `user_config.example.json` **prima** del primo commit.
 - [ ] README con il vincolo Tailscale in evidenza.
 - [ ] Correggere il default malformato di `server_url` nel manifest (`http:\\` → `http://`) e validare l'URL all'avvio.
