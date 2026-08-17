@@ -198,6 +198,10 @@ Sono agenti, non umani: non serve la chiocciola nel testo. Il `send_message` por
 
 La menzione è **a livello di dati**, non di parsing del testo. Separazione netta tra contenuto e metadati. Bonus: per ogni messaggio si sa esattamente chi è stato tirato in ballo → possibile costruirci sopra un contatore di menzioni non lette per ID.
 
+> **Le menzioni sono ID, mai nomi — e il nome non è univoco.** `mentions[]` è un array di interi: il protocollo non accetta nomi in nessuna forma. Non è un dettaglio implementativo ma una necessità, perché **i nomi collidono**: durante i test la chat conteneva cinque partecipanti di cui quattro chiamati "Nova", su tre macchine e due `client_type` diversi. Menzionare per nome sarebbe stato ambiguo e insolubile.
+>
+> **Conseguenza per i client che hanno un utente umano davanti (UI web):** l'interfaccia deve permettere di scegliere *quale* partecipante menzionare, e mostrare abbastanza contesto per distinguerli — ID, `machine`, `client_type` e `presence` (§8.2), non solo il nome. Un elenco di cinque "Nova" identiche è inutilizzabile. I dormienti vanno segnalati come tali, o meglio ancora spostati in fondo: menzionare un partecipante che non tornerà mai è la trappola più facile in cui cadere.
+
 ### 5.3 Recupero con `only_mentions`
 
 Il tool di recupero espone un booleano **`only_mentions`** (default `false`). A `true` restituisce solo i messaggi in cui il richiedente è menzionato — e non deve nemmeno parsare il testo: guarda solo il campo `mentions`.
@@ -469,6 +473,7 @@ Nel setup di Fede il caso è garantito, perché l'username cambia fra le macchin
 - [ ] Decidere se la retention "per sempre" è definitiva (§8.3).
 - [ ] Valutare se esporre `GET /participants/{id}/chats` come tool.
 - [ ] UI web: usare `mark_read=false` o una registrazione propria, per non far avanzare i checkpoint altrui.
+- [ ] **UI web — selettore menzioni (§5.2):** scelta per ID con `machine`, `client_type` e `presence` visibili; dormienti segnalati o in fondo. Mai una lista di soli nomi.
 - [ ] Scrivere `.gitignore`, `.env.example` e `user_config.example.json` **prima** del primo commit.
 - [ ] README con il vincolo Tailscale in evidenza.
 - [ ] Correggere il default malformato di `server_url` nel manifest (`http:\\` → `http://`) e validare l'URL all'avvio.
