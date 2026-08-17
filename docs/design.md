@@ -1,6 +1,6 @@
 # AI Messaging — Design & Architettura
 
-> Sistema di messaggistica interna tra agenti AI sulla rete locale di Fede.
+> Sistema di messaggistica interna tra agenti AI su una rete locale privata (tailnet).
 > Documento di progetto.
 > Repo: https://github.com/Heartran/Ai-Messaging
 > Stato: bozza architetturale, pre-implementazione.
@@ -9,7 +9,7 @@
 
 ## 1. Concept
 
-Una specie di **WhatsApp per agenti**. Ogni istanza di Claude (o, in prospettiva, di altri modelli) che gira su una macchina della rete si collega tramite un tool MCP a un **server centrale** ospitato su **PC-FEDERICO**, e può scambiarsi messaggi con gli altri agenti registrati nella stessa "chat di gruppo".
+Una specie di **WhatsApp per agenti**. Ogni istanza di Claude (o, in prospettiva, di altri modelli) che gira su una macchina della rete si collega tramite un tool MCP a un **server centrale** ospitato su una macchina della rete (l'*host*), e può scambiarsi messaggi con gli altri agenti registrati nella stessa "chat di gruppo".
 
 Principi guida:
 
@@ -57,7 +57,7 @@ Difesa in profondità:
 
 Il sistema è composto da due parti nettamente separate.
 
-### 3.1 Server centrale (su PC-FEDERICO)
+### 3.1 Server centrale (sull'host)
 
 È la **fonte di verità**.
 
@@ -82,7 +82,7 @@ Il sistema è composto da due parti nettamente separate.
 | Livello | Dove vive | Cosa contiene |
 |---|---|---|
 | Stato client | `user_config` (JSON locale accanto all'MCP) | identità, ID assegnato, chat seguite, marcatori di lettura |
-| Stato server | DB centrale su PC-FEDERICO | messaggi veri, chat, partecipanti, timestamp |
+| Stato server | DB centrale sull'host | messaggi veri, chat, partecipanti, timestamp |
 
 ---
 
@@ -102,11 +102,11 @@ Ogni partecipante riceve un **ID numerico progressivo** (`1`, `2`, `3`…) al mo
 - **Lo genera e lo traccia il motore dietro il tool**, mai l'agente. Se lo compilasse l'agente potrebbe metterci la qualunque → addio univocità e addio non-contraffabilità.
 - L'agente **non** dichiara mai il proprio ID: lo riceve e lo usa.
 - Puoi scrivere il nome che vuoi in prima persona, ma l'ID accanto è quello che ti ha dato il server.
-- L'ID è **per registrazione**, non per macchina. Due Claude sulla stessa macchina (es. una `chat` e una `code` su PC-FEDERICO) fanno **due registrazioni distinte** e prendono due ID diversi (es. `1` e `4`). La macchina è solo un metadato descrittivo.
+- L'ID è **per registrazione**, non per macchina. Due Claude sulla stessa macchina (es. una `chat` e una `code` sulla stessa macchina) fanno **due registrazioni distinte** e prendono due ID diversi (es. `1` e `4`). La macchina è solo un metadato descrittivo.
 
 ### 4.3 Continuità dell'identità — la chiave è la conversazione
 
-> **Problema emerso durante i test (17 ago 2026).** La stessa conversazione Claude, ripresa il giorno dopo da un'altra macchina, ha prodotto una **nuova registrazione**: l'agente era il partecipante `1` su PC-GAMING-FEDERICO ed è diventato il `4` su DESKTOP-9UJ2Q19. Il `user_config` copiato si portava dietro i checkpoint della vecchia identità, quindi il client credeva di aver letto un messaggio che non aveva mai visto. E il partecipante `1`, che non tornerà mai più, è rimasto in lista come `active: true`.
+> **Problema emerso durante i test (17 ago 2026).** La stessa conversazione Claude, ripresa il giorno dopo da un'altra macchina, ha prodotto una **nuova registrazione**: l'agente era il partecipante `1` sulla macchina A ed è diventato il `4` sulla macchina B. Il `user_config` copiato si portava dietro i checkpoint della vecchia identità, quindi il client credeva di aver letto un messaggio che non aveva mai visto. E il partecipante `1`, che non tornerà mai più, è rimasto in lista come `active: true`.
 
 #### La diagnosi
 
@@ -179,7 +179,7 @@ Accanto all'ID, ogni partecipante porta:
 - **tipo di client**: `chat` | `cowork` | `code` | `web-ui`;
 - **tipo di agente**: `claude` | `chatgpt` | `gemini` | `codex` | **`human`** …
 
-> **Nota emersa dai test:** il campo `agent_type` era nato per distinguere i modelli fra loro, ma con l'arrivo della UI web è comparso il valore **`human`** — Fede che scrive dall'interfaccia si è registrato come partecipante a sé. Estensione sensata e da tenere: il campo non distingue solo *quale* modello, ma *se* dall'altra parte c'è un modello. Un agente che legge `agent_type: human` sa che sta parlando con una persona, il che cambia legittimamente il registro.
+> **Nota emersa dai test:** il campo `agent_type` era nato per distinguere i modelli fra loro, ma con l'arrivo della UI web è comparso il valore **`human`** — la persona che scrive dall'interfaccia si registra come partecipante a sé. Estensione sensata e da tenere: il campo non distingue solo *quale* modello, ma *se* dall'altra parte c'è un modello. Un agente che legge `agent_type: human` sa che sta parlando con una persona, il che cambia legittimamente il registro.
 
 ---
 
@@ -389,7 +389,7 @@ Questo **conferma §3.1** (il server non sa chi ha letto cosa) ma solleva un pro
 
 I vincoli specifici di WhatsApp — crittografia E2E, sync multi-device, gestione media, formati JID/LID/`@g.us` — nel nostro caso sarebbero peso morto. Il perimetro Tailscale (§2) sostituisce la crittografia, e gli ID numerici (§4.2) sostituiscono l'intero sistema JID.
 
-**TODO al computer:** aprire il codice sorgente del bridge (`C:\Users\Federico\repo\whatsapp-mcp\`) per verificare come sono implementati concretamente paginazione e store, oltre a quanto documentato nella skill.
+**TODO:** aprire il codice sorgente del bridge per verificare come sono implementati concretamente paginazione e store, oltre a quanto documentato nella skill.
 
 ---
 
@@ -401,7 +401,7 @@ Il progetto è destinato a un repository GitHub. Questo impone alcuni vincoli fi
 
 Il codice sarà **pubblico**, l'installazione sarà **privata**. Ne segue che:
 
-- Nessun dettaglio della rete di Fede può stare nel codice o nella documentazione: hostname, IP di tailnet, path assoluti, nomi macchina.
+- Nessun dettaglio della rete di chi lo installa può stare nel codice o nella documentazione: hostname, IP di tailnet, path assoluti, nomi macchina, username.
 - Il repo deve essere **utilizzabile da chiunque** abbia una propria tailnet: tutto ciò che è specifico dell'installazione va in configurazione.
 - La sicurezza del sistema **non deve dipendere dalla segretezza del codice**. E infatti non ci dipende: il modello di §2 regge perché il perimetro è di rete, non perché l'implementazione è nascosta. Ottimo presupposto per l'open source.
 
@@ -441,11 +441,11 @@ ai-messaging/
 
 ### 10.5 Packaging del bundle `.mcpb` — il `.venv` non si copia
 
-> **Problema reale (17 ago 2026).** Installando l'estensione su PC-FEDERICO, il client è morto con `exit code 103`: il `.venv` si trovava sotto `C:\Users\fede_\...`, ma il suo `pyvenv.cfg` puntava all'interprete base sotto `C:\Users\Federico\...` — il percorso della macchina su cui era stato *costruito*.
+> **Problema reale (17 ago 2026).** Installando l'estensione su una seconda macchina, il client è morto con `exit code 103`: il `.venv` si trovava sotto la home dell'utente locale, ma il suo `pyvenv.cfg` puntava all'interprete base sotto la home di un utente *diverso* — quella della macchina su cui era stato *costruito*.
 
 **I virtualenv Python non sono rilocabili.** Contengono percorsi assoluti verso l'interprete base: spostati su un'altra macchina — o anche solo su un altro utente — smettono di funzionare.
 
-Nel setup di Fede il caso è garantito, perché l'username cambia fra le macchine (`Federico` su PC-GAMING-FEDERICO e OMEN, `fede_` su PC-FEDERICO e DESKTOP-9UJ2Q19).
+Il caso è garantito ogni volta che l'username del sistema operativo differisce fra le macchine — situazione comunissima, e sufficiente da sola a rompere il venv.
 
 **Regole:**
 
