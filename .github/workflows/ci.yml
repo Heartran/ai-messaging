@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+    name: tests (py${{ matrix.python-version }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ./server[dev] -e ./mcp[dev]
+
+      - name: Server suite
+        working-directory: server
+        run: python -m pytest -q
+
+      - name: Client suite
+        working-directory: mcp
+        run: python -m pytest -q
+
+      - name: Build wheels and check packaging
+        run: |
+          pip wheel ./server --no-deps -w dist/
+          pip wheel ./mcp --no-deps -w dist/
+          python -c "
+          import glob, zipfile
+          wheel = glob.glob('dist/aim_server*.whl')[0]
+          names = zipfile.ZipFile(wheel).namelist()
+          assert 'aim_server/static/ui.html' in names, 'web UI missing from wheel'
+          print('wheels OK, UI packaged')
+          "

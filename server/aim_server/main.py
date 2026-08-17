@@ -19,7 +19,7 @@ from typing import Iterator
 from importlib import resources
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from . import __version__
 from .db import (
@@ -42,6 +42,9 @@ from .models import (
 logger = logging.getLogger("aim_server")
 
 RETENTION_SWEEP_SECONDS = 3600
+
+# Presence (§7.2): a participant not seen for this long is shown as dormant.
+DORMANT_AFTER_HOURS = 24
 
 # Security framing (§2.3): served with every retrieval of participant-written
 # content, for every client, regardless of how careful that client's model is.
@@ -86,6 +89,39 @@ def create_app(db_path: str, retention_days: int | None = None) -> FastAPI:
     app.state.db_path = db_path
     app.state.retention_days = retention_days
 
+    # Version-skew control (design §7.2): the server declares its version
+    # in EVERY JSON payload — success and error alike — so clients can
+    # detect drift even mid-session, when the server is updated under
+    # already-running conversations.
+    @app.middleware("http")
+    async def declare_server_version(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path in ("/", "/ui", "/docs", "/openapi.json", "/redoc"):
+            return response
+        if not response.headers.get("content-type", "").startswith(
+            "application/json"
+        ):
+            return response
+        body = b"".join([chunk async for chunk in response.body_iterator])
+        try:
+            payload = json.loads(body)
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            payload.setdefault("server_version", __version__)
+            body = json.dumps(payload).encode("utf-8")
+        headers = {
+            key: value
+            for key, value in response.headers.items()
+            if key.lower() not in ("content-length", "content-type")
+        }
+        return Response(
+            content=body,
+            status_code=response.status_code,
+            media_type="application/json",
+            headers=headers,
+        )
+
     app.include_router(_build_router())
     return app
 
@@ -126,10 +162,41 @@ def _get_conn(request: Request) -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+async def _reject_unknown_query_params(request: Request) -> None:
+    """Refuse query parameters this server does not know (design §7.4).
+
+    A silently-ignored parameter is the worst failure mode of version skew:
+    the response looks valid and lies. A newer client must instead get an
+    explicit error naming what this server is missing.
+    """
+    if request.url.path in ("/", "/ui"):
+        return
+    route = request.scope.get("route")
+    dependant = getattr(route, "dependant", None)
+    if dependant is None:
+        return
+    allowed: set[str] = set()
+    stack = [dependant]
+    while stack:
+        node = stack.pop()
+        for param in node.query_params:
+            allowed.add(param.alias or param.name)
+        stack.extend(node.dependencies)
+    unknown = sorted(set(request.query_params) - allowed)
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown query parameter(s) {unknown}: this server "
+            f"(v{__version__}) does not support them. The client is probably "
+            "newer than the server — update the server (git pull && pip "
+            "install --upgrade ./server) and restart it.",
+        )
+
+
 def _build_router():
     from fastapi import APIRouter
 
-    router = APIRouter()
+    router = APIRouter(dependencies=[Depends(_reject_unknown_query_params)])
 
     # ------------------------------------------------------------- helpers
 
@@ -153,6 +220,18 @@ def _build_router():
                 "discover existing chats.",
             )
         return row
+
+    def touch(conn: sqlite3.Connection, pid: int) -> None:
+        """Presence (§7.2): record that this participant was just here.
+
+        Called with the CALLER's ID on every identified request — never for
+        mere lookups (mention targets, from_id filters).
+        """
+        conn.execute(
+            "UPDATE participants SET last_seen_at = ? WHERE id = ?",
+            (now_utc(), pid),
+        )
+        conn.commit()
 
     def membership(
         conn: sqlite3.Connection, chat_id: int, pid: int
@@ -404,13 +483,67 @@ def _build_router():
 
     @router.post("/register", status_code=201)
     def register(body: RegisterRequest, conn: sqlite3.Connection = Depends(_get_conn)):
+        def resumed_response(row: sqlite3.Row) -> dict:
+            # Identity continuity (§4.3): same conversation → same ID, from
+            # any machine. The stored identity wins; only the descriptive
+            # machine metadata follows the participant around.
+            conn.execute(
+                "UPDATE participants SET machine = ?, last_seen_at = ? "
+                "WHERE id = ?",
+                (body.machine, now_utc(), row["id"]),
+            )
+            conn.commit()
+            return {
+                "participant_id": row["id"],
+                "name": row["name"],
+                "machine": body.machine,
+                "client_type": row["client_type"],
+                "agent_type": row["agent_type"],
+                "registered_at": row["registered_at"],
+                "resumed": True,
+                "next_step": (
+                    f"Identity resumed: you are participant {row['id']} "
+                    f"({row['name']}), registered on {row['registered_at']}. "
+                    "Your chats and history are unchanged — no need to "
+                    "introduce yourself again in chats that already know you."
+                ),
+            }
+
+        if body.client_session_key:
+            existing = conn.execute(
+                "SELECT * FROM participants WHERE client_session_key = ?",
+                (body.client_session_key,),
+            ).fetchone()
+            if existing is not None:
+                return resumed_response(existing)
+
         registered_at = now_utc()
-        cur = conn.execute(
-            "INSERT INTO participants (name, machine, client_type, agent_type, "
-            "registered_at) VALUES (?, ?, ?, ?, ?)",
-            (body.name, body.machine, body.client_type, body.agent_type, registered_at),
-        )
-        conn.commit()
+        try:
+            cur = conn.execute(
+                "INSERT INTO participants (name, machine, client_type, "
+                "agent_type, registered_at, client_session_key, last_seen_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    body.name,
+                    body.machine,
+                    body.client_type,
+                    body.agent_type,
+                    registered_at,
+                    body.client_session_key,
+                    registered_at,
+                ),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            # Lost a race against a concurrent registration with the same
+            # session key: resume the identity that won.
+            existing = conn.execute(
+                "SELECT * FROM participants WHERE client_session_key = ?",
+                (body.client_session_key,),
+            ).fetchone()
+            if existing is None:
+                raise
+            return resumed_response(existing)
         # Handshake, first half (§5.5): the answer is not a bare "done" —
         # it instructs the agent to present itself.
         return {
@@ -420,6 +553,7 @@ def _build_router():
             "client_type": body.client_type,
             "agent_type": body.agent_type,
             "registered_at": registered_at,
+            "resumed": False,
             "next_step": (
                 "You are registered: your permanent participant ID is "
                 f"{cur.lastrowid}. Now create or follow a chat. "
@@ -432,6 +566,7 @@ def _build_router():
         body: CreateChatRequest, conn: sqlite3.Connection = Depends(_get_conn)
     ):
         creator = require_participant(conn, body.participant_id)
+        touch(conn, creator["id"])
         created_at = now_utc()
         try:
             cur = conn.execute(
@@ -546,6 +681,7 @@ def _build_router():
         following_ids: set[int] = set()
         if participant_id is not None:
             require_participant(conn, participant_id)
+            touch(conn, participant_id)
             member_rows = conn.execute(
                 "SELECT chat_id FROM chat_members "
                 "WHERE participant_id = ? AND left_at IS NULL",
@@ -582,6 +718,7 @@ def _build_router():
     ):
         chat = require_chat(conn, chat_id)
         participant = require_participant(conn, body.participant_id)
+        touch(conn, participant["id"])
         member = membership(conn, chat_id, participant["id"])
 
         already_following = False
@@ -637,6 +774,7 @@ def _build_router():
     ):
         require_chat(conn, chat_id)
         participant = require_participant(conn, body.participant_id)
+        touch(conn, participant["id"])
         member = membership(conn, chat_id, participant["id"])
         if member is None:
             raise HTTPException(
@@ -677,6 +815,7 @@ def _build_router():
     ):
         require_chat(conn, chat_id)
         sender = require_participant(conn, body.sender_id)
+        touch(conn, sender["id"])
         require_active_member(conn, chat_id, sender["id"])
         mentions = validate_mentions(conn, chat_id, body.mentions)
         return insert_message(
@@ -697,6 +836,7 @@ def _build_router():
     ):
         require_chat(conn, chat_id)
         sender = require_participant(conn, body.sender_id)
+        touch(conn, sender["id"])
         require_active_member(conn, chat_id, sender["id"])
         # A normal message in the history, with a twist: structured metadata
         # readable by the other agents (§5.4).
@@ -761,6 +901,7 @@ def _build_router():
             )
         if participant_id is not None:
             require_participant(conn, participant_id)
+            touch(conn, participant_id)
         if from_id is not None:
             require_participant(conn, from_id)
 
@@ -810,6 +951,7 @@ def _build_router():
         all followed chats, most recent first.
         """
         require_participant(conn, participant_id)
+        touch(conn, participant_id)
         if from_id is not None:
             require_participant(conn, from_id)
 
@@ -847,7 +989,7 @@ def _build_router():
         rows = conn.execute(
             """
             SELECT p.id, p.name, p.machine, p.client_type, p.agent_type,
-                   p.registered_at, m.followed_at, m.left_at
+                   p.registered_at, p.last_seen_at, m.followed_at, m.left_at
             FROM chat_members m
             JOIN participants p ON p.id = m.participant_id
             WHERE m.chat_id = ?
@@ -855,16 +997,28 @@ def _build_router():
             """,
             (chat_id,),
         ).fetchall()
+        # Presence (§7.2): ghosts are made visible, not deleted. A member
+        # who has not called the server recently shows as dormant.
+        dormant_cutoff = (
+            datetime.now(timezone.utc) - timedelta(hours=DORMANT_AFTER_HOURS)
+        ).strftime(TS_FORMAT)
         participants = []
         for row in rows:
             entry = dict(row)
             entry["active"] = row["left_at"] is None
+            entry["presence"] = (
+                "active"
+                if row["last_seen_at"] is not None
+                and row["last_seen_at"] >= dormant_cutoff
+                else "dormant"
+            )
             participants.append(entry)
         return {
             "chat_id": chat_id,
             "chat_name": chat["name"],
             "participants": participants,
             "count": len(participants),
+            "dormant_after_hours": DORMANT_AFTER_HOURS,
             "framing": FRAMING,
         }
 

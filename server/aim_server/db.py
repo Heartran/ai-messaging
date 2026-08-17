@@ -27,15 +27,25 @@ def _canonical(dt: datetime) -> str:
     utc = dt.astimezone(timezone.utc).replace(tzinfo=None)
     return utc.isoformat(timespec="microseconds") + "Z"
 
+# Bump when the schema changes; migrate() upgrades live databases in place.
+SCHEMA_VERSION = 1
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS participants (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    name          TEXT NOT NULL,
-    machine       TEXT NOT NULL,
-    client_type   TEXT NOT NULL CHECK (client_type IN ('chat', 'cowork', 'code')),
-    agent_type    TEXT NOT NULL,
-    registered_at TEXT NOT NULL
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    name               TEXT NOT NULL,
+    machine            TEXT NOT NULL,
+    client_type        TEXT NOT NULL
+        CHECK (client_type IN ('chat', 'cowork', 'code', 'web-ui')),
+    agent_type         TEXT NOT NULL,
+    registered_at      TEXT NOT NULL,
+    client_session_key TEXT,
+    last_seen_at       TEXT
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_participants_session_key
+    ON participants(client_session_key)
+    WHERE client_session_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS chats (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,10 +125,81 @@ def connect(db_path: str) -> sqlite3.Connection:
 def init_db(db_path: str) -> None:
     conn = connect(db_path)
     try:
+        _migrate(conn)
         conn.executescript(SCHEMA)
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
     finally:
         conn.close()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Upgrade a live database in place. Identity data is never dropped.
+
+    v0 → v1: participants gains client_session_key (identity continuity,
+    design §4.3) and last_seen_at (presence, §7.2), and the client_type
+    CHECK admits 'web-ui' (§4.5). SQLite cannot alter a CHECK, so the
+    table is rebuilt — preserving rows, IDs and the AUTOINCREMENT
+    sequence so IDs are never reused.
+    """
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version >= SCHEMA_VERSION:
+        return
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'participants'"
+    ).fetchone()
+    if not exists:
+        return  # fresh database: SCHEMA creates everything at the new shape
+    columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(participants)").fetchall()
+    }
+    if "client_session_key" in columns:
+        return  # already the new shape, only the version stamp was missing
+
+    sequence = conn.execute(
+        "SELECT seq FROM sqlite_sequence WHERE name = 'participants'"
+    ).fetchone()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE participants_v1 (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                name               TEXT NOT NULL,
+                machine            TEXT NOT NULL,
+                client_type        TEXT NOT NULL
+                    CHECK (client_type IN ('chat', 'cowork', 'code', 'web-ui')),
+                agent_type         TEXT NOT NULL,
+                registered_at      TEXT NOT NULL,
+                client_session_key TEXT,
+                last_seen_at       TEXT
+            );
+            INSERT INTO participants_v1
+                (id, name, machine, client_type, agent_type, registered_at)
+                SELECT id, name, machine, client_type, agent_type, registered_at
+                FROM participants;
+            DROP TABLE participants;
+            ALTER TABLE participants_v1 RENAME TO participants;
+            """
+        )
+        if sequence is not None:
+            # DROP TABLE removed the AUTOINCREMENT high-water mark; restore
+            # it so participant IDs are never reused (design §4.2).
+            # sqlite_sequence has no unique constraint: update-then-insert.
+            updated = conn.execute(
+                "UPDATE sqlite_sequence SET seq = ? WHERE name = 'participants'",
+                (sequence["seq"],),
+            )
+            if updated.rowcount == 0:
+                conn.execute(
+                    "INSERT INTO sqlite_sequence (name, seq) "
+                    "VALUES ('participants', ?)",
+                    (sequence["seq"],),
+                )
+        conn.commit()
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
 
 
 def purge_old_messages(conn: sqlite3.Connection, cutoff: str) -> int:

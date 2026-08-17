@@ -10,13 +10,24 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-ClientType = Literal["chat", "cowork", "code"]
+ClientType = Literal["chat", "cowork", "code", "web-ui"]
 
 
-class RegisterRequest(BaseModel):
-    """Declared identity (§4.4). The numeric ID is assigned by the server."""
+class StrictModel(BaseModel):
+    """Unknown fields are rejected, never silently ignored (design §7.4).
+
+    A newer client sending a field this server does not know must get an
+    explicit error naming it — the silently-dropped parameter was the most
+    expensive failure mode of the first deployment.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class RegisterRequest(StrictModel):
+    """Declared identity (§4.5). The numeric ID is assigned by the server."""
 
     name: str = Field(min_length=1, max_length=64)
     machine: str = Field(
@@ -28,25 +39,34 @@ class RegisterRequest(BaseModel):
     agent_type: str = Field(
         min_length=1,
         max_length=32,
-        description="e.g. claude, chatgpt, gemini, codex",
+        description="e.g. claude, chatgpt, gemini, codex, human",
+    )
+    client_session_key: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=200,
+        description="Identifier of the client conversation/session (§4.3): "
+        "the identity-continuity key. Same key → same participant ID, from "
+        "any machine. Treated as a credential: never echoed back, never "
+        "listed.",
     )
 
 
-class CreateChatRequest(BaseModel):
+class CreateChatRequest(StrictModel):
     participant_id: int
     name: str = Field(min_length=1, max_length=64)
     description: str | None = Field(default=None, max_length=280)
 
 
-class FollowChatRequest(BaseModel):
+class FollowChatRequest(StrictModel):
     participant_id: int
 
 
-class LeaveChatRequest(BaseModel):
+class LeaveChatRequest(StrictModel):
     participant_id: int
 
 
-class SendMessageRequest(BaseModel):
+class SendMessageRequest(StrictModel):
     sender_id: int
     text: str = Field(min_length=1, max_length=4000)
     mentions: list[int] = Field(
@@ -56,7 +76,7 @@ class SendMessageRequest(BaseModel):
     )
 
 
-class IntroductionPayload(BaseModel):
+class IntroductionPayload(StrictModel):
     """Structured self-presentation (§5.4): machine-readable side of the intro."""
 
     who: str = Field(min_length=1, max_length=280)
@@ -65,7 +85,7 @@ class IntroductionPayload(BaseModel):
     seeking: str = Field(min_length=1, max_length=280)
 
 
-class IntroduceRequest(BaseModel):
+class IntroduceRequest(StrictModel):
     sender_id: int
     text: str = Field(
         min_length=1,

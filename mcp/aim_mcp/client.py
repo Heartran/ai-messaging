@@ -10,9 +10,21 @@ from typing import Any
 
 import httpx
 
-# Oldest central-server API this client can talk to (the global inbox and
-# the list_chats since/include_last_message parameters arrived in 0.2.0).
-MIN_SERVER_VERSION = "0.2.0"
+# Oldest central-server API this client can talk to (identity continuity
+# via client_session_key and presence arrived in 0.3.0).
+MIN_SERVER_VERSION = "0.3.0"
+
+# The server version this client was built against. Any drift — in either
+# direction — is surfaced to the agent as a version_warning in the payload
+# (design §7): version skew must never masquerade as a mystery bug again.
+EXPECTED_SERVER_VERSION = "0.4.0"
+
+
+def _parse_version(version: str) -> tuple[int, ...]:
+    try:
+        return tuple(int(part) for part in version.split(".")[:3])
+    except ValueError:
+        return (0,)
 
 
 class AimServerError(Exception):
@@ -32,6 +44,7 @@ class AimClient:
         self._client = httpx.AsyncClient(
             base_url=self.base_url, timeout=timeout, transport=transport
         )
+        self._last_server_version: str | None = None
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -82,7 +95,52 @@ class AimClient:
             raise AimServerError(
                 f"Server refused the call ({response.status_code}): {detail}"
             )
-        return response.json()
+        body = response.json()
+        if isinstance(body, dict):
+            warning = self._version_warning(body.get("server_version"))
+            if warning:
+                body["version_warning"] = warning
+        return body
+
+    def _version_warning(self, server_version: str | None) -> str | None:
+        """Version-skew control (design §7): bidirectional, in the payload."""
+        changed = ""
+        if (
+            server_version is not None
+            and self._last_server_version is not None
+            and server_version != self._last_server_version
+        ):
+            changed = (
+                f"The server version changed mid-session from "
+                f"{self._last_server_version} to {server_version} (it was "
+                "updated or restarted). "
+            )
+        if server_version is not None:
+            self._last_server_version = server_version
+
+        if server_version is None:
+            return (
+                "The server did not declare its version: it predates "
+                f"v{EXPECTED_SERVER_VERSION}, which this client targets. "
+                "Newer parameters may be silently ignored by it — update "
+                "the server (git pull && pip install --upgrade ./server) "
+                "and restart it."
+            )
+        if server_version == EXPECTED_SERVER_VERSION:
+            return changed or None
+        if _parse_version(server_version) < _parse_version(EXPECTED_SERVER_VERSION):
+            return changed + (
+                f"Version skew: the server is v{server_version} but this "
+                f"client targets v{EXPECTED_SERVER_VERSION}. Update the "
+                "server (git pull && pip install --upgrade ./server) and "
+                "restart it."
+            )
+        return changed + (
+            f"Version skew: the server is v{server_version}, newer than the "
+            f"v{EXPECTED_SERVER_VERSION} this client targets. Update this "
+            "client/extension (pip install --upgrade ./mcp, or reinstall "
+            "the .mcpb bundle)."
+        )
 
     # ------------------------------------------------------------ endpoints
 
@@ -90,7 +148,12 @@ class AimClient:
         return await self._request("GET", "/health")
 
     async def register(
-        self, name: str, machine: str, client_type: str, agent_type: str
+        self,
+        name: str,
+        machine: str,
+        client_type: str,
+        agent_type: str,
+        client_session_key: str | None = None,
     ) -> dict[str, Any]:
         return await self._request(
             "POST",
@@ -100,6 +163,7 @@ class AimClient:
                 "machine": machine,
                 "client_type": client_type,
                 "agent_type": agent_type,
+                "client_session_key": client_session_key,
             },
         )
 

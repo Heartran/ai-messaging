@@ -31,15 +31,19 @@ class AimTools:
         client_type: str,
         agent_type: str,
         machine: str | None = None,
+        client_session_key: str | None = None,
     ) -> dict[str, Any]:
-        if self.config.registered:
+        key = client_session_key or self.config.declared.get("client_session_key")
+        if self.config.registered and not key:
             return {
                 "already_registered": True,
                 "participant_id": self.config.participant_id,
                 "declared": self.config.declared,
                 "note": "Registration is one-time and this identity is "
                 "already stored in user_config. There is nothing to do; "
-                "use aim_whoami to inspect it.",
+                "use aim_whoami to inspect it. (To make the identity "
+                "portable across machines, re-register passing "
+                "client_session_key — the conversation identifier.)",
             }
         machine = (machine or socket.gethostname()).strip()
         response = await self.client.register(
@@ -47,14 +51,38 @@ class AimTools:
             machine=machine,
             client_type=client_type,
             agent_type=agent_type,
+            client_session_key=key,
         )
+        if key and "resumed" not in response:
+            raise AimServerError(
+                "The central server silently ignored client_session_key: it "
+                "predates identity continuity and would mint a new ghost "
+                "identity on every machine. Update it to aim-server >= "
+                "0.3.0 (git pull && pip install --upgrade ./server) and "
+                "restart it, then register again."
+            )
+
+        previous_id = self.config.participant_id
+        new_id = response["participant_id"]
+        if previous_id is not None and previous_id != new_id:
+            # The stored state belongs to another identity (§4.3): reading
+            # twice is safe, skipping a message is not.
+            self.config.reset_checkpoints()
+            response["note"] = (
+                f"user_config held state for participant {previous_id}, but "
+                f"this session is participant {new_id}: stored checkpoints "
+                "were discarded and the identity switched."
+            )
+        # On a resume the server's stored identity wins over the declared one.
         self.config.declared = {
-            "name": name,
+            "name": response.get("name", name),
             "machine": machine,
-            "client_type": client_type,
-            "agent_type": agent_type,
+            "client_type": response.get("client_type", client_type),
+            "agent_type": response.get("agent_type", agent_type),
         }
-        self.config.participant_id = response["participant_id"]
+        if key:
+            self.config.declared["client_session_key"] = key
+        self.config.participant_id = new_id
         self.config.registered_at = response["registered_at"]
         self.config.save()
         return response

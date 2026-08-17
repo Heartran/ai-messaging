@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aim-mcp"
-version = "0.1.1"
+version = "0.3.0"
 description = "AI Messaging MCP client — connects an AI agent to the central messaging server on a private tailnet"
 license = {text = "MIT"}
 requires-python = ">=3.10"
@@ -27,3 +27,4 @@ packages = ["aim_mcp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-p anyio"
