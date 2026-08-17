@@ -17,7 +17,7 @@ MIN_SERVER_VERSION = "0.3.0"
 # The server version this client was built against. Any drift — in either
 # direction — is surfaced to the agent as a version_warning in the payload
 # (design §7): version skew must never masquerade as a mystery bug again.
-EXPECTED_SERVER_VERSION = "0.4.0"
+EXPECTED_SERVER_VERSION = "0.5.0"
 
 
 def _parse_version(version: str) -> tuple[int, ...]:
@@ -28,7 +28,22 @@ def _parse_version(version: str) -> tuple[int, ...]:
 
 
 class AimServerError(Exception):
-    """A server call failed; the message is agent-actionable."""
+    """A server call failed; the message is agent-actionable.
+
+    `code` and `participant_id` carry the server's structured error detail
+    when present (e.g. code="unknown_participant" after a server wipe), so
+    callers can react to cases without parsing prose.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        code: str | None = None,
+        participant_id: int | None = None,
+    ):
+        super().__init__(message)
+        self.code = code
+        self.participant_id = participant_id
 
 
 class AimClient:
@@ -79,6 +94,13 @@ class AimClient:
                 detail = response.json().get("detail")
             except ValueError:
                 detail = response.text
+            if isinstance(detail, dict):
+                raise AimServerError(
+                    f"Server refused the call ({response.status_code}): "
+                    f"{detail.get('message', detail)}",
+                    code=detail.get("code"),
+                    participant_id=detail.get("participant_id"),
+                )
             if response.status_code == 404 and detail == "Not Found":
                 # The server's own 404s always carry a speaking detail
                 # ("Unknown chat ID 3. …"); a bare "Not Found" means the

@@ -347,6 +347,71 @@ async def test_register_with_key_against_old_server_fails_loudly(tmp_path):
     assert tools.config.registered is False  # no identity was adopted
 
 
+def wipe_server_db(tmp_path):
+    """Simulate a server wipe: all data gone, IDs start over."""
+    import sqlite3 as sq
+
+    conn = sq.connect(str(tmp_path / "server.db"))
+    for table in ("mentions", "messages", "chat_members", "chats", "participants"):
+        conn.execute(f"DELETE FROM {table}")
+    conn.execute("DELETE FROM sqlite_sequence")
+    conn.commit()
+    conn.close()
+
+
+async def test_server_wipe_triggers_automatic_rebirth(tmp_path, tools, other_tools):
+    await tools.register(
+        "Nova", "chat", "claude", machine="PC",
+        client_session_key="conversation-nova",
+    )
+    await tools.create_chat("general")
+    await register(other_tools, name="Bob")
+
+    wipe_server_db(tmp_path)
+
+    # The next identified call recognizes "unknown participant", clears the
+    # cache, re-registers with the SAME conversation key and retries once —
+    # no manual intervention, no retry loop (§4.3).
+    inbox = await tools.get_messages()
+    assert "re-registered automatically" in inbox["identity_note"]
+    assert tools.config.participant_id == 1  # fresh server, fresh IDs
+    assert tools.config.declared["client_session_key"] == "conversation-nova"
+    assert tools.config.followed_chats == {}  # checkpoints did not survive
+    assert inbox["messages"] == []
+
+    # The reborn identity is fully functional.
+    created = await tools.create_chat("general")
+    assert created["following"] is True
+
+
+async def test_wipe_without_session_key_fails_actionably_once(
+    tmp_path, tools, other_tools
+):
+    await register(tools)  # no session key
+    await tools.create_chat("general")
+    wipe_server_db(tmp_path)
+
+    with pytest.raises(AimServerError, match="wiped|register again"):
+        await tools.get_messages()
+    # The stale cache was cleared: no zombie identity left to loop on.
+    assert tools.config.participant_id is None
+    assert tools.config.followed_chats == {}
+
+
+async def test_unknown_other_participant_does_not_trigger_rebirth(
+    tools, other_tools
+):
+    await tools.register(
+        "Nova", "chat", "claude", machine="PC",
+        client_session_key="conversation-nova",
+    )
+    await tools.create_chat("general")
+    my_id = tools.config.participant_id
+    with pytest.raises(AimServerError, match="999"):
+        await tools.get_messages(chat_id=1, from_id=999)
+    assert tools.config.participant_id == my_id  # identity untouched
+
+
 async def test_no_version_warning_when_versions_match(tools):
     await register(tools)
     listing = await tools.list_chats()
