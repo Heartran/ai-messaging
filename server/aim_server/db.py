@@ -1,15 +1,27 @@
 """SQLite storage — the single source of truth.
 
 Identity and ordering rules live here (docs/design.md §3.1, §4):
-- participant and message IDs are progressive, assigned by the server,
-  and never reused (AUTOINCREMENT prevents rowid recycling);
+- participant IDs are progressive, assigned by the server, and never
+  reused *within one database*: AUTOINCREMENT prevents rowid recycling,
+  but it cannot survive the file being deleted. That is why every
+  database carries an `instance_id` (§4.7): recreate the database and
+  the IDs start from 1 again, so a client holding a cached ID from the
+  previous instance would silently land on whoever now owns that number.
+  The instance ID lets a client notice instead of impersonating;
+- a participant proves who it is with a secret token issued at
+  registration and stored only as a hash (§4.8). The numeric ID is a
+  public identifier — it is printed in every participants listing — and
+  therefore can never be the credential;
 - every timestamp comes from the server clock, UTC, in one fixed
   ISO 8601 format so lexicographic comparison equals chronological order.
 """
 
 from __future__ import annotations
 
+import hashlib
+import secrets
 import sqlite3
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,9 +40,14 @@ def _canonical(dt: datetime) -> str:
     return utc.isoformat(timespec="microseconds") + "Z"
 
 # Bump when the schema changes; migrate() upgrades live databases in place.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS server_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS participants (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     name               TEXT NOT NULL,
@@ -40,7 +57,8 @@ CREATE TABLE IF NOT EXISTS participants (
     agent_type         TEXT NOT NULL,
     registered_at      TEXT NOT NULL,
     client_session_key TEXT,
-    last_seen_at       TEXT
+    last_seen_at       TEXT,
+    token_hash         TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_participants_session_key
@@ -92,6 +110,54 @@ def now_utc() -> str:
     return _canonical(datetime.now(timezone.utc))
 
 
+# ------------------------------------------------------- identity secrets
+
+def new_token() -> str:
+    """A participant's proof of identity: 256 bits of urandom (§4.8)."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_token(token: str) -> str:
+    """Store the hash, never the token.
+
+    A plain SHA-256 is the right tool here and a slow KDF is not: this is
+    a full-entropy random secret, not a human-chosen password, so there is
+    no dictionary to grind through.
+    """
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def token_matches(token: str | None, stored_hash: str | None) -> bool:
+    """Constant-time comparison; a missing side never matches."""
+    if not token or not stored_hash:
+        return False
+    return secrets.compare_digest(hash_token(token), stored_hash)
+
+
+def instance_id(conn: sqlite3.Connection) -> str:
+    """This database's identity (§4.7), created once and never changed.
+
+    Recreating the database mints a new one, which is exactly the signal
+    clients need: every participant ID they cached belongs to a server
+    that no longer exists.
+    """
+    row = conn.execute(
+        "SELECT value FROM server_meta WHERE key = 'instance_id'"
+    ).fetchone()
+    if row is not None:
+        return row["value"]
+    value = str(uuid.uuid4())
+    conn.execute(
+        "INSERT OR IGNORE INTO server_meta (key, value) VALUES ('instance_id', ?)",
+        (value,),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT value FROM server_meta WHERE key = 'instance_id'"
+    ).fetchone()
+    return row["value"]
+
+
 def parse_client_timestamp(raw: str) -> str:
     """Normalize a client-supplied ISO 8601 instant to the canonical format.
 
@@ -129,19 +195,13 @@ def init_db(db_path: str) -> None:
         conn.executescript(SCHEMA)
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
+        instance_id(conn)  # mint this database's identity on first run
     finally:
         conn.close()
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """Upgrade a live database in place. Identity data is never dropped.
-
-    v0 → v1: participants gains client_session_key (identity continuity,
-    design §4.3) and last_seen_at (presence, §7.2), and the client_type
-    CHECK admits 'web-ui' (§4.5). SQLite cannot alter a CHECK, so the
-    table is rebuilt — preserving rows, IDs and the AUTOINCREMENT
-    sequence so IDs are never reused.
-    """
+    """Upgrade a live database in place. Identity data is never dropped."""
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version >= SCHEMA_VERSION:
         return
@@ -150,12 +210,42 @@ def _migrate(conn: sqlite3.Connection) -> None:
     ).fetchone()
     if not exists:
         return  # fresh database: SCHEMA creates everything at the new shape
+    _migrate_to_v1(conn)
+    _migrate_to_v2(conn)
+
+
+def _migrate_to_v2(conn: sqlite3.Connection) -> None:
+    """v1 → v2: participants gains token_hash (§4.8).
+
+    Existing identities are left with a NULL token: nobody can prove them
+    yet, so every identified call they make is refused until the client
+    registers again with its client_session_key and collects a token.
+    That is the intended blast radius — before this column existed, the
+    numeric ID alone was accepted from anyone who could read it.
+    """
+    columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(participants)").fetchall()
+    }
+    if "token_hash" in columns:
+        return
+    conn.execute("ALTER TABLE participants ADD COLUMN token_hash TEXT")
+    conn.commit()
+
+
+def _migrate_to_v1(conn: sqlite3.Connection) -> None:
+    """v0 → v1: participants gains client_session_key (identity continuity,
+    design §4.3) and last_seen_at (presence, §7.2), and the client_type
+    CHECK admits 'web-ui' (§4.5). SQLite cannot alter a CHECK, so the
+    table is rebuilt — preserving rows, IDs and the AUTOINCREMENT
+    sequence so IDs are never reused.
+    """
     columns = {
         row["name"]
         for row in conn.execute("PRAGMA table_info(participants)").fetchall()
     }
     if "client_session_key" in columns:
-        return  # already the new shape, only the version stamp was missing
+        return  # already at v1 or beyond
 
     sequence = conn.execute(
         "SELECT seq FROM sqlite_sequence WHERE name = 'participants'"

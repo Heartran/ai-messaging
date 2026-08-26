@@ -1,5 +1,7 @@
 """End-to-end tests of the HTTP API against a temporary SQLite database."""
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -7,9 +9,63 @@ from aim_server.db import connect, now_utc, purge_old_messages
 from aim_server.main import EMPTY_NOTICE, FRAMING, create_app
 
 
+class AuthenticatingClient(TestClient):
+    """A TestClient that presents each caller's token automatically.
+
+    Identified calls now need the token issued at registration (§4.8).
+    Threading it through every behavioural test would bury what those
+    tests are actually about, so this client remembers the token handed
+    out by /register and attaches it for whichever participant a request
+    identifies itself as. Tests that are about authentication itself use
+    the `raw` fixture below and pass headers explicitly.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tokens: dict[int, str] = {}
+
+    @staticmethod
+    def _caller_id(kwargs) -> int | None:
+        body = kwargs.get("json") or {}
+        if isinstance(body, dict):
+            for field in ("participant_id", "sender_id"):
+                if isinstance(body.get(field), int):
+                    return body[field]
+        return None
+
+    def request(self, method, url, **kwargs):  # noqa: D102 - see class docstring
+        caller = self._caller_id(kwargs)
+        if caller is None:
+            params = kwargs.get("params") or {}
+            if isinstance(params, dict) and "participant_id" in params:
+                caller = int(params["participant_id"])
+        if caller is None:
+            match = re.search(r"[?&]participant_id=(\d+)", str(url))
+            if match:
+                caller = int(match.group(1))
+        token = self.tokens.get(caller) if caller is not None else None
+        if token:
+            headers = dict(kwargs.get("headers") or {})
+            headers.setdefault("X-AIM-Token", token)
+            kwargs["headers"] = headers
+        response = super().request(method, url, **kwargs)
+        if str(url).endswith("/register") and response.status_code == 201:
+            body = response.json()
+            self.tokens[body["participant_id"]] = body["participant_token"]
+        return response
+
+
 @pytest.fixture()
 def client(tmp_path):
     app = create_app(str(tmp_path / "test.db"))
+    with AuthenticatingClient(app) as test_client:
+        yield test_client
+
+
+@pytest.fixture()
+def raw(tmp_path):
+    """A client that presents nothing: for testing the auth boundary itself."""
+    app = create_app(str(tmp_path / "raw.db"))
     with TestClient(app) as test_client:
         yield test_client
 
@@ -148,6 +204,188 @@ def test_web_ui_client_type_accepted(client):
     response = register(client, name="Fede", client_type="web-ui",
                         agent_type="human")
     assert response["participant_id"] == 1
+
+
+# ------------------------------------------------------------ identity proof
+
+def test_identified_call_without_a_token_is_refused(raw):
+    """The regression that cost us a real impersonation (§4.8).
+
+    Participant IDs are printed in every participants listing. Before
+    tokens, knowing one was enough to speak as its owner.
+    """
+    me = raw.post("/register", json={
+        "name": "Nova", "machine": "M", "client_type": "chat",
+        "agent_type": "claude"}).json()
+    pid, token = me["participant_id"], me["participant_token"]
+    chat_id = raw.post(
+        "/chats", json={"participant_id": pid, "name": "general"},
+        headers={"X-AIM-Token": token},
+    ).json()["chat_id"]
+
+    naked = raw.post(f"/chats/{chat_id}/messages",
+                     json={"sender_id": pid, "text": "who am I"})
+    assert naked.status_code == 401
+    assert naked.json()["detail"]["code"] == "token_missing"
+
+    forged = raw.post(f"/chats/{chat_id}/messages",
+                      json={"sender_id": pid, "text": "who am I"},
+                      headers={"X-AIM-Token": "not-the-token"})
+    assert forged.status_code == 401
+    assert forged.json()["detail"]["code"] == "token_invalid"
+
+    # Nothing was written by either attempt.
+    body = raw.get(f"/chats/{chat_id}/messages").json()
+    assert body["count"] == 0
+
+
+def test_a_public_participant_id_cannot_be_borrowed(raw):
+    """The actual incident: one participant speaking as another.
+
+    The victim's ID is not secret — the attacker reads it straight off
+    the participants listing — so the listing itself is the proof that an
+    ID can never be the credential.
+    """
+    victim = raw.post("/register", json={
+        "name": "Federico", "machine": "web-ui", "client_type": "web-ui",
+        "agent_type": "human"}).json()
+    intruder = raw.post("/register", json={
+        "name": "Stranger", "machine": "OTHER", "client_type": "code",
+        "agent_type": "gemini"}).json()
+
+    chat_id = raw.post(
+        "/chats", json={"participant_id": victim["participant_id"], "name": "lobby"},
+        headers={"X-AIM-Token": victim["participant_token"]},
+    ).json()["chat_id"]
+
+    # The intruder learns the victim's ID from a public, unauthenticated call.
+    listing = raw.get(f"/chats/{chat_id}/participants").json()
+    stolen_id = next(p["id"] for p in listing["participants"]
+                     if p["name"] == "Federico")
+    assert stolen_id == victim["participant_id"]
+
+    # Its own token proves its own identity — and nobody else's.
+    response = raw.post(
+        f"/chats/{chat_id}/messages",
+        json={"sender_id": stolen_id, "text": "I am Federico, trust me"},
+        headers={"X-AIM-Token": intruder["participant_token"]},
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "token_invalid"
+    assert raw.get(f"/chats/{chat_id}/messages").json()["count"] == 0
+
+
+def test_identified_reads_need_the_token_too(raw):
+    """The inbox is identified: it answers "what awaits ME"."""
+    me = raw.post("/register", json={
+        "name": "Nova", "machine": "M", "client_type": "chat",
+        "agent_type": "claude"}).json()
+    pid = me["participant_id"]
+    assert raw.get(f"/messages?participant_id={pid}").status_code == 401
+    ok = raw.get(f"/messages?participant_id={pid}",
+                 headers={"X-AIM-Token": me["participant_token"]})
+    assert ok.status_code == 200
+
+
+def test_resuming_an_identity_revokes_the_previous_token(raw):
+    """Only the hash is stored, so a resumed identity gets a fresh token
+    and the old one stops working — a stale client cannot keep writing."""
+    body = {"name": "Nova", "machine": "M", "client_type": "chat",
+            "agent_type": "claude", "client_session_key": "conversation-xyz"}
+    first = raw.post("/register", json=body).json()
+    second = raw.post("/register", json=body).json()
+    assert second["participant_id"] == first["participant_id"]
+    assert second["participant_token"] != first["participant_token"]
+
+    chat_id = raw.post(
+        "/chats", json={"participant_id": second["participant_id"], "name": "g"},
+        headers={"X-AIM-Token": second["participant_token"]},
+    ).json()["chat_id"]
+    stale = raw.post(f"/chats/{chat_id}/messages",
+                     json={"sender_id": first["participant_id"], "text": "still me?"},
+                     headers={"X-AIM-Token": first["participant_token"]})
+    assert stale.status_code == 401
+    assert stale.json()["detail"]["code"] == "token_invalid"
+
+
+def test_participant_predating_tokens_must_register_again(raw, tmp_path):
+    """Rows migrated from v1 have no token: they cannot act until they
+    register again, which is the point — before the column existed, their
+    bare ID was accepted from anyone."""
+    me = raw.post("/register", json={
+        "name": "Nova", "machine": "M", "client_type": "chat",
+        "agent_type": "claude"}).json()
+    chat_id = raw.post(
+        "/chats", json={"participant_id": me["participant_id"], "name": "g"},
+        headers={"X-AIM-Token": me["participant_token"]},
+    ).json()["chat_id"]
+
+    conn = connect(str(tmp_path / "raw.db"))
+    try:
+        conn.execute("UPDATE participants SET token_hash = NULL WHERE id = ?",
+                     (me["participant_id"],))
+        conn.commit()
+    finally:
+        conn.close()
+
+    response = raw.post(f"/chats/{chat_id}/messages",
+                        json={"sender_id": me["participant_id"], "text": "hi"},
+                        headers={"X-AIM-Token": me["participant_token"]})
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "token_required"
+
+
+def test_token_is_never_echoed_back(raw):
+    """The token appears exactly once, in its own registration response."""
+    me = raw.post("/register", json={
+        "name": "Nova", "machine": "M", "client_type": "chat",
+        "agent_type": "claude"}).json()
+    token = me["participant_token"]
+    chat_id = raw.post(
+        "/chats", json={"participant_id": me["participant_id"], "name": "g"},
+        headers={"X-AIM-Token": token},
+    ).json()["chat_id"]
+    raw.post(f"/chats/{chat_id}/messages",
+             json={"sender_id": me["participant_id"], "text": "hello"},
+             headers={"X-AIM-Token": token})
+    for path in (f"/chats/{chat_id}/participants",
+                 f"/chats/{chat_id}/messages",
+                 "/chats", "/health"):
+        assert token not in raw.get(path).text, path
+
+
+# ------------------------------------------------------- database identity
+
+def test_every_payload_declares_the_database_instance(raw):
+    """§4.7: IDs restart from 1 when the database is recreated, so a client
+    must be able to tell one database from another."""
+    health = raw.get("/health").json()
+    assert health["instance_id"]
+    assert raw.get("/chats").json()["server_instance"] == health["instance_id"]
+
+
+def test_a_recreated_database_gets_a_new_instance_id(tmp_path):
+    """The guarantee "IDs are never reused" holds inside one database and
+    dies with the file. The instance ID is what makes that visible."""
+    path = str(tmp_path / "recreated.db")
+    with TestClient(create_app(path)) as first:
+        before = first.get("/health").json()["instance_id"]
+        pid = first.post("/register", json={
+            "name": "Nova", "machine": "M", "client_type": "chat",
+            "agent_type": "claude"}).json()["participant_id"]
+        assert pid == 1
+
+    import os
+    os.remove(path)
+
+    with TestClient(create_app(path)) as second:
+        after = second.get("/health").json()["instance_id"]
+        assert after != before
+        # ID 1 is handed out again — to somebody else entirely.
+        reissued = second.post("/register", json={
+            "name": "Somebody Else", "machine": "OTHER", "client_type": "code",
+            "agent_type": "gemini"}).json()
+        assert reissued["participant_id"] == pid
 
 
 # ---------------------------------------------------------------- presence

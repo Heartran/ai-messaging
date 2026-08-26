@@ -628,7 +628,14 @@ function randomSessionKey() {
 /* ------------------------------------------------------------------ api */
 async function api(path, options) {
   let response;
-  try { response = await fetch(path, options); }
+  // The participant token (§4.8) proves who is calling. The numeric ID is
+  // public — it is printed in every participants listing — so it can never
+  // be the credential.
+  const opts = Object.assign({}, options);
+  if (state.me && state.me.token) {
+    opts.headers = Object.assign({}, opts.headers, { "X-AIM-Token": state.me.token });
+  }
+  try { response = await fetch(path, opts); }
   catch { throw new Error("Server unreachable — are you on the tailnet?"); }
   let body = null;
   try { body = await response.json(); } catch { /* non-JSON error page */ }
@@ -644,7 +651,28 @@ async function api(path, options) {
     error.code = code;
     throw error;
   }
+  // A recreated database (§4.7) invalidates every ID this browser cached.
+  if (body && body.server_instance) checkInstance(body.server_instance);
   return body;
+}
+
+/* Identity codes that mean "this browser can no longer prove who it is":
+   the cure is always to register again, never to retry. */
+const REBIRTH_CODES = ["unknown_participant", "token_required", "token_invalid"];
+
+function checkInstance(instance) {
+  const known = localStorage.getItem("aim_ui_instance");
+  if (!known) { localStorage.setItem("aim_ui_instance", instance); return; }
+  if (known === instance) return;
+  // IDs restart from 1 when the database is recreated: the number this
+  // browser remembers now belongs to somebody else.
+  localStorage.setItem("aim_ui_instance", instance);
+  localStorage.removeItem("aim_ui_identity");
+  localStorage.removeItem("aim_ui_lastseen");
+  state.me = null;
+  state.lastSeen = {};
+  toast("The server database was recreated: your stored identity no longer " +
+        "applies and was discarded. Register again to write.", true);
 }
 const post = (path, payload) => api(path, {
   method: "POST",
@@ -740,7 +768,17 @@ function ensureRegistered() {
         state.me = {
           participant_id: registration.participant_id,
           name: registration.name || name,
+          token: registration.participant_token,
         };
+        if (registration.server_instance) {
+          localStorage.setItem("aim_ui_instance", registration.server_instance);
+        }
+        if (!state.me.token) {
+          throw new Error(
+            "The server registered you but issued no participant_token: it " +
+            "is older than v0.8.0, where the numeric ID stopped being " +
+            "accepted as proof. Update the server and reload.");
+        }
         saveJSON("aim_ui_identity", state.me);
         settings.displayName = state.me.name;
         settings.mode = "participant";
@@ -1015,7 +1053,7 @@ async function loadInbox() {
   try {
     body = await api("/messages?" + params);
   } catch (error) {
-    if (error.code === "unknown_participant") {
+    if (REBIRTH_CODES.includes(error.code)) {
       await rebirth();
       body = await api("/messages?" + new URLSearchParams({
         participant_id: state.me.participant_id, limit: "100" }));
@@ -1609,15 +1647,17 @@ async function sendMessage() {
           { participant_id: state.me.participant_id });
         await post(`/chats/${state.current}/messages`, payload);
         toast("You joined the chat with your first message.");
-      } else if (error.code === "unknown_participant") {
+      } else if (REBIRTH_CODES.includes(error.code)) {
         // Wipe-safe (§4.3): rebirth, not a retry loop.
         await rebirth();
         payload.sender_id = state.me.participant_id;
         await post(`/chats/${state.current}/follow`,
           { participant_id: state.me.participant_id });
         await post(`/chats/${state.current}/messages`, payload);
-        toast("The server was reset: you re-registered as participant #" +
-              state.me.participant_id + " and the message was sent.");
+        toast("Your identity could not be proven any more (the server was " +
+              "reset, or the token was revoked elsewhere): you re-registered " +
+              "as participant #" + state.me.participant_id +
+              " and the message was sent.");
       } else { throw error; }
     }
     input.value = "";

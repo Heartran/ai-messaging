@@ -12,12 +12,12 @@ import httpx
 
 # Oldest central-server API this client can talk to (identity continuity
 # via client_session_key and presence arrived in 0.3.0).
-MIN_SERVER_VERSION = "0.3.0"
+MIN_SERVER_VERSION = "0.8.0"
 
 # The server version this client was built against. Any drift — in either
 # direction — is surfaced to the agent as a version_warning in the payload
 # (design §7): version skew must never masquerade as a mystery bug again.
-EXPECTED_SERVER_VERSION = "0.7.1"
+EXPECTED_SERVER_VERSION = "0.8.0"
 
 
 def _parse_version(version: str) -> tuple[int, ...]:
@@ -71,10 +71,14 @@ class AimClient:
         *,
         json: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
+        token: str | None = None,
     ) -> dict[str, Any]:
+        # The participant token (§4.8) travels in a header, never in the
+        # query string: URLs end up in access logs, headers do not.
+        headers = {"X-AIM-Token": token} if token else None
         try:
             response = await self._client.request(
-                method, path, json=json, params=params
+                method, path, json=json, params=params, headers=headers
             )
         except httpx.ConnectError as exc:
             raise AimServerError(
@@ -190,7 +194,11 @@ class AimClient:
         )
 
     async def create_chat(
-        self, participant_id: int, name: str, description: str | None
+        self,
+        participant_id: int,
+        name: str,
+        description: str | None,
+        token: str | None = None,
     ) -> dict[str, Any]:
         return await self._request(
             "POST",
@@ -200,52 +208,80 @@ class AimClient:
                 "name": name,
                 "description": description,
             },
+            token=token,
         )
 
-    async def list_chats(self, **params: Any) -> dict[str, Any]:
+    async def list_chats(
+        self, token: str | None = None, **params: Any
+    ) -> dict[str, Any]:
         return await self._request(
-            "GET", "/chats", params=_drop_none(params)
+            "GET", "/chats", params=_drop_none(params), token=token
         )
 
-    async def follow_chat(self, chat_id: int, participant_id: int) -> dict[str, Any]:
+    async def follow_chat(
+        self, chat_id: int, participant_id: int, token: str | None = None
+    ) -> dict[str, Any]:
         return await self._request(
             "POST",
             f"/chats/{chat_id}/follow",
             json={"participant_id": participant_id},
+            token=token,
         )
 
-    async def leave_chat(self, chat_id: int, participant_id: int) -> dict[str, Any]:
+    async def leave_chat(
+        self, chat_id: int, participant_id: int, token: str | None = None
+    ) -> dict[str, Any]:
         return await self._request(
             "POST",
             f"/chats/{chat_id}/leave",
             json={"participant_id": participant_id},
+            token=token,
         )
 
     async def send_message(
-        self, chat_id: int, sender_id: int, text: str, mentions: list[int]
+        self,
+        chat_id: int,
+        sender_id: int,
+        text: str,
+        mentions: list[int],
+        token: str | None = None,
     ) -> dict[str, Any]:
         return await self._request(
             "POST",
             f"/chats/{chat_id}/messages",
             json={"sender_id": sender_id, "text": text, "mentions": mentions},
+            token=token,
         )
 
     async def introduce(
-        self, chat_id: int, sender_id: int, text: str, payload: dict[str, str]
+        self,
+        chat_id: int,
+        sender_id: int,
+        text: str,
+        payload: dict[str, str],
+        token: str | None = None,
     ) -> dict[str, Any]:
         return await self._request(
             "POST",
             f"/chats/{chat_id}/introductions",
             json={"sender_id": sender_id, "text": text, "payload": payload},
+            token=token,
         )
 
-    async def get_chat_messages(self, chat_id: int, **params: Any) -> dict[str, Any]:
+    async def get_chat_messages(
+        self, chat_id: int, token: str | None = None, **params: Any
+    ) -> dict[str, Any]:
         return await self._request(
-            "GET", f"/chats/{chat_id}/messages", params=_drop_none(params)
+            "GET", f"/chats/{chat_id}/messages",
+            params=_drop_none(params), token=token,
         )
 
-    async def get_inbox(self, **params: Any) -> dict[str, Any]:
-        return await self._request("GET", "/messages", params=_drop_none(params))
+    async def get_inbox(
+        self, token: str | None = None, **params: Any
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET", "/messages", params=_drop_none(params), token=token
+        )
 
     async def list_participants(self, chat_id: int) -> dict[str, Any]:
         return await self._request("GET", f"/chats/{chat_id}/participants")

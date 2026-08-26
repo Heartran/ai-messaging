@@ -45,10 +45,17 @@ class FollowedChat:
 
 @dataclass
 class Identity:
-    """One conversation's identity: its ID, metadata and checkpoints."""
+    """One conversation's identity: its ID, proof, metadata and checkpoints."""
 
     key: str
     participant_id: int | None = None
+    # The secret issued at registration (§4.8). The participant ID is
+    # public — it is printed in every participants listing — so the token
+    # is what actually proves this identity. Never post it in a chat.
+    token: str | None = None
+    # Which database issued that ID (§4.7). IDs restart from 1 when the
+    # database is recreated, so an ID without its instance means nothing.
+    server_instance: str | None = None
     registered_at: str | None = None
     declared: dict[str, Any] = field(default_factory=dict)
     last_checked_at: str | None = None
@@ -67,6 +74,16 @@ class Identity:
             )
         return self.participant_id
 
+    def require_token(self) -> str:
+        if self.token is None:
+            raise NotRegisteredError(
+                "This identity has no participant token: it was stored by "
+                "a client that predates §4.8, or the server was recreated. "
+                "Call aim_register with this conversation's "
+                "client_session_key to obtain one."
+            )
+        return self.token
+
     def key_preview(self) -> str:
         """Recognizable to its owner, useless to claim the identity."""
         return "…" + self.key[-6:] if len(self.key) > 6 else "…"
@@ -83,6 +100,19 @@ class Identity:
         self.followed_chats.clear()
         self.last_checked_at = None
         self.last_mentions_checked_at = None
+
+    def forget_credentials(self) -> None:
+        """Drop the ID and its proof — they belong to a server that is gone.
+
+        Called when the server's instance ID does not match the one this
+        identity was issued by (§4.7). Keeping the number would be worse
+        than useless: after a database is recreated, IDs are handed out
+        again from 1, so the cached number now points at a stranger.
+        """
+        self.participant_id = None
+        self.token = None
+        self.registered_at = None
+        self.reset_checkpoints()
 
     def upsert_followed(self, chat_id: int, name: str) -> FollowedChat:
         chat = self.followed_chats.get(chat_id)
@@ -112,6 +142,8 @@ class Identity:
     def to_dict(self) -> dict[str, Any]:
         return {
             "participant_id": self.participant_id,
+            "token": self.token,
+            "server_instance": self.server_instance,
             "registered_at": self.registered_at,
             "declared": self.declared,
             "last_checked_at": self.last_checked_at,
@@ -129,6 +161,8 @@ class Identity:
         identity = cls(
             key=key,
             participant_id=raw.get("participant_id"),
+            token=raw.get("token"),
+            server_instance=raw.get("server_instance"),
             registered_at=raw.get("registered_at"),
             declared=dict(raw.get("declared") or {}),
             last_checked_at=raw.get("last_checked_at"),

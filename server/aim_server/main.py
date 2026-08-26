@@ -18,17 +18,21 @@ from typing import Iterator
 
 from importlib import resources
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from . import __version__
 from .db import (
     TS_FORMAT,
     connect,
+    hash_token,
     init_db,
+    instance_id,
+    new_token,
     now_utc,
     parse_client_timestamp,
     purge_old_messages,
+    token_matches,
 )
 from .models import (
     CreateChatRequest,
@@ -72,6 +76,13 @@ def create_app(db_path: str, retention_days: int | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         init_db(db_path)
+        # This database's identity (§4.7), declared in every payload so a
+        # client with state from a previous database finds out at once.
+        meta_conn = connect(db_path)
+        try:
+            _app.state.instance_id = instance_id(meta_conn)
+        finally:
+            meta_conn.close()
         sweeper: asyncio.Task | None = None
         if retention_days:
             await asyncio.to_thread(_run_retention_sweep, db_path, retention_days)
@@ -89,6 +100,26 @@ def create_app(db_path: str, retention_days: int | None = None) -> FastAPI:
     )
     app.state.db_path = db_path
     app.state.retention_days = retention_days
+    app.state.instance_id = None
+
+    def current_instance() -> str | None:
+        """This database's identity (§4.7), resolved once and cached.
+
+        The lifespan sets it at startup; this fallback covers hosts that
+        never run a lifespan (an ASGI transport mounted in-process), so
+        the instance is declared in every deployment, not most of them.
+        """
+        if app.state.instance_id is None:
+            conn = connect(db_path)
+            try:
+                app.state.instance_id = instance_id(conn)
+            except sqlite3.Error:  # database not initialized yet
+                return None
+            finally:
+                conn.close()
+        return app.state.instance_id
+
+    app.state.current_instance = current_instance
 
     # Version-skew control (design §7.2): the server declares its version
     # in EVERY JSON payload — success and error alike — so clients can
@@ -110,6 +141,7 @@ def create_app(db_path: str, retention_days: int | None = None) -> FastAPI:
             payload = None
         if isinstance(payload, dict):
             payload.setdefault("server_version", __version__)
+            payload.setdefault("server_instance", current_instance())
             body = json.dumps(payload).encode("utf-8")
         headers = {
             key: value
@@ -217,6 +249,64 @@ def _build_router():
                     "message": f"Unknown participant ID {pid}. It does not "
                     "exist on this server (never registered, or the server "
                     "was wiped). Register (again) to obtain a valid ID.",
+                },
+            )
+        return row
+
+    def require_caller(
+        conn: sqlite3.Connection, pid: int, token: str | None
+    ) -> sqlite3.Row:
+        """Resolve the CALLER of an identified request — with proof (§4.8).
+
+        `require_participant` answers "does this row exist"; that is the
+        right question for a *subject* (a mention target, a sender filter)
+        and catastrophically the wrong one for the caller. Participant IDs
+        are public — every participants listing prints them — so accepting
+        a bare ID as identity let anyone speak as anyone, and let a client
+        holding an ID cached from a previous database silently inherit
+        whoever now owns that number (§4.7).
+
+        The token issued at registration is the credential. Missing or
+        wrong → 401 with a structured code, so a client can recover by
+        registering again with its client_session_key instead of retrying
+        a call that will never work.
+        """
+        row = require_participant(conn, pid)
+        if row["token_hash"] is None:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "token_required",
+                    "participant_id": pid,
+                    "message": f"Participant {pid} predates identity tokens "
+                    "and cannot be used until it proves itself. Register "
+                    "again with the same client_session_key to receive a "
+                    "token, then send it as the X-AIM-Token header.",
+                },
+            )
+        if not token:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "token_missing",
+                    "participant_id": pid,
+                    "message": "This call is identified as participant "
+                    f"{pid} but carries no X-AIM-Token header. The numeric "
+                    "ID is a public identifier, not a credential: it is "
+                    "printed in every participants listing. Send the token "
+                    "returned by /register.",
+                },
+            )
+        if not token_matches(token, row["token_hash"]):
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "token_invalid",
+                    "participant_id": pid,
+                    "message": f"The token presented for participant {pid} "
+                    "is not valid. If this identity was resumed elsewhere "
+                    "the previous token was revoked; register again with "
+                    "your client_session_key to obtain the current one.",
                 },
             )
         return row
@@ -493,6 +583,7 @@ def _build_router():
         return {
             "status": "ok",
             "version": __version__,
+            "instance_id": request.app.state.current_instance(),
             "server_time": now_utc(),
             "retention": {"days": retention_days, "policy": policy},
         }
@@ -503,14 +594,19 @@ def _build_router():
             # Identity continuity (§4.3): same conversation → same ID, from
             # any machine. The stored identity wins; only the descriptive
             # machine metadata follows the participant around.
+            # The token is rotated (§4.8): only the hash is stored, so the
+            # old one cannot be handed back, and whoever resumes the
+            # conversation last is the one holding a working credential.
+            token = new_token()
             conn.execute(
-                "UPDATE participants SET machine = ?, last_seen_at = ? "
-                "WHERE id = ?",
-                (body.machine, now_utc(), row["id"]),
+                "UPDATE participants SET machine = ?, last_seen_at = ?, "
+                "token_hash = ? WHERE id = ?",
+                (body.machine, now_utc(), hash_token(token), row["id"]),
             )
             conn.commit()
             return {
                 "participant_id": row["id"],
+                "participant_token": token,
                 "name": row["name"],
                 "machine": body.machine,
                 "client_type": row["client_type"],
@@ -521,7 +617,10 @@ def _build_router():
                     f"Identity resumed: you are participant {row['id']} "
                     f"({row['name']}), registered on {row['registered_at']}. "
                     "Your chats and history are unchanged — no need to "
-                    "introduce yourself again in chats that already know you."
+                    "introduce yourself again in chats that already know "
+                    "you. Store participant_token and send it as the "
+                    "X-AIM-Token header on every identified call; any token "
+                    "issued earlier for this identity has just been revoked."
                 ),
             }
 
@@ -534,11 +633,12 @@ def _build_router():
                 return resumed_response(existing)
 
         registered_at = now_utc()
+        token = new_token()
         try:
             cur = conn.execute(
                 "INSERT INTO participants (name, machine, client_type, "
-                "agent_type, registered_at, client_session_key, last_seen_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "agent_type, registered_at, client_session_key, last_seen_at, "
+                "token_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     body.name,
                     body.machine,
@@ -547,6 +647,7 @@ def _build_router():
                     registered_at,
                     body.client_session_key,
                     registered_at,
+                    hash_token(token),
                 ),
             )
             conn.commit()
@@ -564,6 +665,7 @@ def _build_router():
         # it instructs the agent to present itself.
         return {
             "participant_id": cur.lastrowid,
+            "participant_token": token,
             "name": body.name,
             "machine": body.machine,
             "client_type": body.client_type,
@@ -572,16 +674,21 @@ def _build_router():
             "resumed": False,
             "next_step": (
                 "You are registered: your permanent participant ID is "
-                f"{cur.lastrowid}. Now create or follow a chat. "
+                f"{cur.lastrowid}, and participant_token is how you prove "
+                "it — store it and send it as the X-AIM-Token header on "
+                "every identified call. The ID alone is public and proves "
+                "nothing. Now create or follow a chat. "
                 + INTRODUCE_NEXT_STEP
             ),
         }
 
     @router.post("/chats", status_code=201)
     def create_chat(
-        body: CreateChatRequest, conn: sqlite3.Connection = Depends(_get_conn)
+        body: CreateChatRequest,
+        conn: sqlite3.Connection = Depends(_get_conn),
+        x_aim_token: str | None = Header(default=None, alias="X-AIM-Token"),
     ):
-        creator = require_participant(conn, body.participant_id)
+        creator = require_caller(conn, body.participant_id, x_aim_token)
         touch(conn, creator["id"])
         created_at = now_utc()
         try:
@@ -639,6 +746,7 @@ def _build_router():
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
         conn: sqlite3.Connection = Depends(_get_conn),
+        x_aim_token: str | None = Header(default=None, alias="X-AIM-Token"),
     ):
         since_ts = parse_bound("since", since)
         sql = [
@@ -696,7 +804,9 @@ def _build_router():
 
         following_ids: set[int] = set()
         if participant_id is not None:
-            require_participant(conn, participant_id)
+            # Identified read: it answers "which of these do *I* follow" and
+            # updates presence, so it needs the same proof as a write (§4.8).
+            require_caller(conn, participant_id, x_aim_token)
             touch(conn, participant_id)
             member_rows = conn.execute(
                 "SELECT chat_id FROM chat_members "
@@ -731,9 +841,10 @@ def _build_router():
         chat_id: int,
         body: FollowChatRequest,
         conn: sqlite3.Connection = Depends(_get_conn),
+        x_aim_token: str | None = Header(default=None, alias="X-AIM-Token"),
     ):
         chat = require_chat(conn, chat_id)
-        participant = require_participant(conn, body.participant_id)
+        participant = require_caller(conn, body.participant_id, x_aim_token)
         touch(conn, participant["id"])
         member = membership(conn, chat_id, participant["id"])
 
@@ -787,9 +898,10 @@ def _build_router():
         chat_id: int,
         body: LeaveChatRequest,
         conn: sqlite3.Connection = Depends(_get_conn),
+        x_aim_token: str | None = Header(default=None, alias="X-AIM-Token"),
     ):
         require_chat(conn, chat_id)
-        participant = require_participant(conn, body.participant_id)
+        participant = require_caller(conn, body.participant_id, x_aim_token)
         touch(conn, participant["id"])
         member = membership(conn, chat_id, participant["id"])
         if member is None:
@@ -828,6 +940,7 @@ def _build_router():
         chat_id: int,
         body: DeleteChatRequest,
         conn: sqlite3.Connection = Depends(_get_conn),
+        x_aim_token: str | None = Header(default=None, alias="X-AIM-Token"),
     ):
         """Permanently delete a chat with its messages and memberships (§10.6).
 
@@ -839,7 +952,7 @@ def _build_router():
         The name becomes available again for a new chat.
         """
         chat = require_chat(conn, chat_id)
-        actor = require_participant(conn, body.participant_id)
+        actor = require_caller(conn, body.participant_id, x_aim_token)
         touch(conn, actor["id"])
         # Same collation as the unique index on chats.name (NOCASE).
         if body.confirm_name.strip().lower() != chat["name"].strip().lower():
@@ -882,9 +995,10 @@ def _build_router():
         chat_id: int,
         body: SendMessageRequest,
         conn: sqlite3.Connection = Depends(_get_conn),
+        x_aim_token: str | None = Header(default=None, alias="X-AIM-Token"),
     ):
         require_chat(conn, chat_id)
-        sender = require_participant(conn, body.sender_id)
+        sender = require_caller(conn, body.sender_id, x_aim_token)
         touch(conn, sender["id"])
         require_active_member(conn, chat_id, sender["id"])
         mentions = validate_mentions(conn, chat_id, body.mentions)
@@ -903,9 +1017,10 @@ def _build_router():
         chat_id: int,
         body: IntroduceRequest,
         conn: sqlite3.Connection = Depends(_get_conn),
+        x_aim_token: str | None = Header(default=None, alias="X-AIM-Token"),
     ):
         require_chat(conn, chat_id)
-        sender = require_participant(conn, body.sender_id)
+        sender = require_caller(conn, body.sender_id, x_aim_token)
         touch(conn, sender["id"])
         require_active_member(conn, chat_id, sender["id"])
         # A normal message in the history, with a twist: structured metadata
@@ -960,6 +1075,7 @@ def _build_router():
         limit: int = Query(default=50, ge=1, le=200),
         only_mentions: bool = Query(default=False),
         conn: sqlite3.Connection = Depends(_get_conn),
+        x_aim_token: str | None = Header(default=None, alias="X-AIM-Token"),
     ):
         chat = require_chat(conn, chat_id)
 
@@ -970,10 +1086,10 @@ def _build_router():
                 "are filtered for a specific participant.",
             )
         if participant_id is not None:
-            require_participant(conn, participant_id)
+            require_caller(conn, participant_id, x_aim_token)
             touch(conn, participant_id)
         if from_id is not None:
-            require_participant(conn, from_id)
+            require_participant(conn, from_id)  # a filter subject, not the caller
 
         messages = query_messages(
             conn,
@@ -1013,6 +1129,7 @@ def _build_router():
         limit: int = Query(default=50, ge=1, le=200),
         only_mentions: bool = Query(default=False),
         conn: sqlite3.Connection = Depends(_get_conn),
+        x_aim_token: str | None = Header(default=None, alias="X-AIM-Token"),
     ):
         """The global inbox (§8.3): one call answers "what awaits me, anywhere".
 
@@ -1020,10 +1137,10 @@ def _build_router():
         is the single most important call of the system — messages across
         all followed chats, most recent first.
         """
-        require_participant(conn, participant_id)
+        require_caller(conn, participant_id, x_aim_token)
         touch(conn, participant_id)
         if from_id is not None:
-            require_participant(conn, from_id)
+            require_participant(conn, from_id)  # a filter subject, not the caller
 
         messages = query_messages(
             conn,

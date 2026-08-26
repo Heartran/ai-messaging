@@ -67,7 +67,20 @@ class AimTools:
 
         identity = self.config.upsert_identity(key)
         previous_id = identity.participant_id
+        previous_instance = identity.server_instance
         new_id = response["participant_id"]
+        instance = response.get("server_instance")
+        if previous_instance is not None and instance != previous_instance:
+            # The database was recreated (§4.7): IDs restart from 1, so
+            # every number this identity remembered now belongs to someone
+            # else. Nothing cached survives that.
+            identity.reset_checkpoints()
+            response["note"] = (
+                "The server's database was recreated since this identity "
+                "last registered: stored checkpoints and followed chats "
+                "were discarded, and the participant IDs you remember now "
+                "belong to other participants."
+            )
         if previous_id is not None and previous_id != new_id:
             # This identity's stored state belongs to a participant the
             # server no longer honors (e.g. a wipe happened between calls):
@@ -86,8 +99,25 @@ class AimTools:
             "agent_type": response.get("agent_type", agent_type),
         }
         identity.participant_id = new_id
+        identity.token = response.get("participant_token")
+        identity.server_instance = instance
         identity.registered_at = response["registered_at"]
         self.config.save()
+        if identity.token is None:
+            raise AimServerError(
+                "The server registered this identity but issued no "
+                "participant_token: it predates §4.8, where the numeric ID "
+                "stopped being accepted as proof. Update the server "
+                "(git pull && pip install --upgrade ./server) and restart "
+                "it, then register again."
+            )
+        # The token is a credential: it is never echoed back to the agent.
+        response.pop("participant_token", None)
+        response["identity_note"] = (
+            "A participant token was issued and stored locally for this "
+            "conversation. It is never shown and never sent in a message: "
+            "the client attaches it to every identified call."
+        )
         return response
 
     def whoami(self, client_session_key: str | None = None) -> dict[str, Any]:
@@ -97,6 +127,10 @@ class AimTools:
                 "client_session_key": identity.key,
                 "registered": identity.registered,
                 "participant_id": identity.participant_id,
+                # Status only: the token is a credential, so it is never
+                # rendered — not even to its own owner (§4.8).
+                "token_stored": identity.token is not None,
+                "server_instance": identity.server_instance,
                 "declared": identity.declared,
                 "registered_at": identity.registered_at,
                 "last_checked_at": identity.last_checked_at,
@@ -142,6 +176,7 @@ class AimTools:
         declared = dict(identity.declared)
         old_id = identity.participant_id
         identity.participant_id = None
+        identity.token = None
         identity.registered_at = None
         identity.reset_checkpoints()
         self.config.save()
@@ -160,6 +195,8 @@ class AimTools:
             client_session_key=identity.key,
         )
         identity.participant_id = response["participant_id"]
+        identity.token = response.get("participant_token")
+        identity.server_instance = response.get("server_instance")
         identity.registered_at = response["registered_at"]
         self.config.save()
         return (
@@ -170,14 +207,19 @@ class AimTools:
             "were reset — re-create or re-follow chats as needed."
         )
 
+    # Server codes that mean "this identity cannot be proven any more".
+    # Each is recoverable exactly once, by registering again with the
+    # conversation's own key (§4.3, §4.8) — never by a retry loop.
+    _REBIRTH_CODES = ("unknown_participant", "token_required", "token_invalid")
+
     async def _identified(self, identity: Identity, attempt):
-        """Run an identified call; on 'this ID no longer exists', rebirth
-        and retry exactly once (never a retry loop, §4.3)."""
+        """Run an identified call; if this identity can no longer prove
+        itself, re-register once and retry (never a retry loop, §4.3)."""
         try:
-            return await attempt()
+            result = await attempt()
         except AimServerError as exc:
             if (
-                exc.code != "unknown_participant"
+                exc.code not in self._REBIRTH_CODES
                 or exc.participant_id is None
                 or exc.participant_id != identity.participant_id
             ):
@@ -187,6 +229,33 @@ class AimTools:
             if isinstance(result, dict):
                 result["identity_note"] = note
             return result
+        self._check_instance(identity, result)
+        return result
+
+    def _check_instance(self, identity: Identity, result: Any) -> None:
+        """Notice a recreated database from any response (§4.7).
+
+        The server stamps its instance on every payload. If it changed,
+        this identity's ID belongs to a database that no longer exists —
+        and the number has almost certainly been handed to someone else.
+        """
+        if not isinstance(result, dict):
+            return
+        instance = result.get("server_instance")
+        if instance is None or identity.server_instance is None:
+            return
+        if instance == identity.server_instance:
+            return
+        identity.forget_credentials()
+        self.config.save()
+        raise AimServerError(
+            "The server's database was recreated: the participant ID this "
+            "conversation held was issued by a database that no longer "
+            "exists, and that number now belongs to someone else. The "
+            "stored identity has been discarded — call aim_register with "
+            "this conversation's client_session_key to obtain a new one.",
+            code="server_instance_changed",
+        )
 
     # --------------------------------------------------------------- chats
 
@@ -200,7 +269,9 @@ class AimTools:
 
         async def attempt() -> dict[str, Any]:
             pid = identity.require_participant_id()
-            response = await self.client.create_chat(pid, name, description)
+            response = await self.client.create_chat(
+                pid, name, description, token=identity.require_token()
+            )
             identity.upsert_followed(response["chat_id"], response["name"])
             self.config.save()
             return response
@@ -224,6 +295,7 @@ class AimTools:
             # (§9.3) — computed by the server, which stays stateless
             # about reads.
             return await self.client.list_chats(
+                token=identity.require_token(),
                 participant_id=identity.participant_id,
                 query=query,
                 include_last_message=include_last_message or None,
@@ -270,7 +342,9 @@ class AimTools:
         async def attempt() -> dict[str, Any]:
             pid = identity.require_participant_id()
             resolved = await self._resolve_chat_id(chat_id, chat_name)
-            response = await self.client.follow_chat(resolved, pid)
+            response = await self.client.follow_chat(
+                resolved, pid, token=identity.require_token()
+            )
             identity.upsert_followed(response["chat_id"], response["chat_name"])
             self.config.save()
             return response
@@ -284,7 +358,9 @@ class AimTools:
 
         async def attempt() -> dict[str, Any]:
             pid = identity.require_participant_id()
-            response = await self.client.leave_chat(chat_id, pid)
+            response = await self.client.leave_chat(
+                chat_id, pid, token=identity.require_token()
+            )
             # Drop the local mirror entry; the server keeps the membership
             # row with its explicit "left" marker, and re-following resumes
             # the same participant ID.
@@ -309,7 +385,8 @@ class AimTools:
         async def attempt() -> dict[str, Any]:
             pid = identity.require_participant_id()
             response = await self.client.send_message(
-                chat_id, pid, text, mentions or []
+                chat_id, pid, text, mentions or [],
+                token=identity.require_token(),
             )
             if reply_to_message_id is not None:
                 # Reply-and-archive (lesson from mcp-talk): answering a
@@ -345,6 +422,7 @@ class AimTools:
                     "goal": goal,
                     "seeking": seeking,
                 },
+                token=identity.require_token(),
             )
 
         return await self._identified(identity, attempt)
@@ -432,9 +510,13 @@ class AimTools:
             "limit": limit,
         }
         if chat_id is not None:
-            response = await self.client.get_chat_messages(chat_id, **params)
+            response = await self.client.get_chat_messages(
+                chat_id, token=identity.require_token(), **params
+            )
         else:
-            response = await self.client.get_inbox(**params)
+            response = await self.client.get_inbox(
+                token=identity.require_token(), **params
+            )
 
         for message in response["messages"]:
             message["is_me"] = message["sender"]["id"] == pid

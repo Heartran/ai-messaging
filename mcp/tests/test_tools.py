@@ -17,6 +17,109 @@ async def register(tools, key=KEY_A, name="Nova", client_type="chat",
     return await tools.register(key, name, client_type, agent_type, machine=machine)
 
 
+# ------------------------------------------- §4.8 / §4.7 flaw regressions
+
+async def test_the_token_is_stored_but_never_shown(tools):
+    response = await register(tools)
+    # The credential is not handed back to the agent, which could quote it
+    # into a chat message. Only its existence is reported.
+    assert "participant_token" not in response
+    identity = tools.config.identity_for(KEY_A)
+    assert identity.token
+    assert identity.server_instance
+    who = tools.whoami(KEY_A)
+    assert who["token_stored"] is True
+    assert identity.token not in str(who)
+
+
+async def test_a_revoked_token_triggers_one_rebirth_not_a_loop(tools, server_app):
+    """The identity resumed elsewhere had its token rotated; this client
+    must recover by registering again, exactly once."""
+    from aim_server.db import connect as server_connect
+
+    await register(tools)
+    await tools.create_chat(KEY_A, "general")
+    conn = server_connect(server_app.state.db_path)
+    try:  # simulate the same conversation resumed on another machine
+        conn.execute("UPDATE participants SET token_hash = 'rotated-elsewhere'")
+        conn.commit()
+    finally:
+        conn.close()
+
+    sent = await tools.send_message(KEY_A, 1, "am I still me?")
+    assert "identity_note" in sent
+    assert sent["sender"]["id"] == tools.config.identity_for(KEY_A).participant_id
+
+
+async def test_a_recycled_id_is_never_inherited(tools, other_tools, server_app):
+    """THE incident, reproduced (§4.7 + §4.8).
+
+    A client goes quiet holding participant #1. The database is recreated,
+    IDs restart from 1, and #1 is handed to somebody else — in the real
+    incident, to the human owner. When the stale client wakes up and calls
+    with its cached #1, it must not become that person.
+    """
+    from aim_server.db import connect as server_connect
+
+    await register(tools, name="Stale")
+    stale = tools.config.identity_for(KEY_A)
+    assert stale.participant_id == 1
+
+    # The database is recreated: same file, everything else new.
+    conn = server_connect(server_app.state.db_path)
+    try:
+        conn.executescript(
+            "DELETE FROM messages; DELETE FROM chat_members; DELETE FROM chats;"
+            "DELETE FROM participants; DELETE FROM sqlite_sequence;"
+            "UPDATE server_meta SET value = 'a-different-database' "
+            "WHERE key = 'instance_id';"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    server_app.state.instance_id = None  # the server re-reads its identity
+
+    # Number 1 is handed out again — to the human owner this time.
+    victim = await register(other_tools, key=KEY_BOB, name="Federico",
+                            client_type="web-ui", agent_type="human")
+    assert victim["participant_id"] == stale.participant_id
+    await other_tools.create_chat(KEY_BOB, "lobby")
+
+    # The stale client wakes up and acts, still believing it is #1.
+    joined = await tools.follow_chat(KEY_A, chat_id=1)
+    # It was told its identity could not be proven and re-registered.
+    assert "identity_note" in joined
+    sent = await tools.send_message(KEY_A, 1, "who is speaking?")
+
+    # It recovered as ITSELF — a new identity — never as Federico.
+    assert sent["sender"]["name"] == "Stale"
+    assert sent["sender"]["id"] != victim["participant_id"]
+    assert tools.config.identity_for(KEY_A).participant_id != victim["participant_id"]
+
+
+async def test_an_instance_change_is_reported_not_absorbed(tools, server_app):
+    """Belt and braces: even on a call the server accepts, a changed
+    instance ID means the cached participant ID is meaningless (§4.7)."""
+    from aim_server.db import connect as server_connect
+
+    await register(tools)
+    conn = server_connect(server_app.state.db_path)
+    try:
+        conn.execute(
+            "UPDATE server_meta SET value = 'a-different-database' "
+            "WHERE key = 'instance_id'"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    server_app.state.instance_id = None
+
+    with pytest.raises(AimServerError, match="recreated"):
+        await tools.list_chats(KEY_A)
+    identity = tools.config.identity_for(KEY_A)
+    assert identity.participant_id is None and identity.token is None
+
+
 # ---------------------------------------------------- §4.4 flaw regression
 
 async def test_two_conversations_share_one_client_without_clashing(tools):
@@ -504,6 +607,7 @@ async def test_unreachable_server_error_is_actionable(tmp_path):
     config.base_url = "http://100.64.0.199:8422"
     identity = config.upsert_identity(KEY_A)
     identity.participant_id = 1
+    identity.token = "a-token-the-server-will-never-be-asked-about"
     tools = AimTools(
         config, AimClient("http://100.64.0.199:8422", timeout=2.0)
     )
