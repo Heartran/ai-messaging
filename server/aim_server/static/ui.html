@@ -1,300 +1,597 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AI Messaging</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
 <style>
-  :root {
-    --bg: #0b141a; --sidebar: #111b21; --panel: #202c33; --panel-2: #2a3942;
-    --border: #222d34; --text: #e9edef; --sub: #8696a0; --accent: #00a884;
-    --bubble-in: #202c33; --bubble-out: #005c4b; --danger: #f15c6d;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; }
-  body {
-    background: var(--bg); color: var(--text);
-    font: 15px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    overflow: hidden;
-  }
-  #app { display: flex; height: 100%; }
+/* ══════════════════════════════════════════════════════════════════════
+   Nocturne — design-system tokens (inlined: this page ships self-contained
+   from the server, §10). Source of truth: the Nocturne styles.css in the
+   Claude Design project "AI Messaging — Redesign".
+   ══════════════════════════════════════════════════════════════════════ */
+:root {
+  --color-bg: #161826;
+  --color-surface: #232532;
+  --color-text: #e9e9ed;
+  --color-accent: #9184d9;
+  --color-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
 
-  /* ---------------------------------------------------------- sidebar */
-  #sidebar {
-    width: 340px; min-width: 260px; background: var(--sidebar);
-    border-right: 1px solid var(--border); display: flex; flex-direction: column;
-  }
-  .sb-head {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 14px 16px; background: var(--panel);
-  }
-  .brand { font-weight: 600; font-size: 17px; }
-  .brand small { color: var(--accent); font-weight: 600; }
-  .sb-actions button {
-    background: none; border: none; color: var(--sub); font-size: 20px;
-    cursor: pointer; padding: 4px 8px; border-radius: 6px;
-  }
-  .sb-actions button:hover { background: var(--panel-2); color: var(--text); }
-  #serverInfo {
-    padding: 6px 16px; font-size: 12px; color: var(--sub);
-    border-bottom: 1px solid var(--border); white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis;
-  }
-  #serverInfo .ok { color: var(--accent); }
-  #serverInfo.err { color: var(--danger); white-space: normal; }
-  #skewBanner {
-    padding: 8px 16px; font-size: 12.5px; background: rgba(241,92,109,.14);
-    color: var(--danger); border-bottom: 1px solid var(--danger);
-  }
-  #chatList { flex: 1; overflow-y: auto; }
-  .chat-item {
-    display: flex; gap: 12px; padding: 12px 16px; cursor: pointer;
-    border-bottom: 1px solid rgba(134,150,160,.08); align-items: center;
-  }
-  .chat-item:hover { background: var(--panel); }
-  .chat-item.active { background: var(--panel-2); }
-  .avatar {
-    width: 46px; height: 46px; border-radius: 50%; flex: none;
-    display: flex; align-items: center; justify-content: center;
-    font-weight: 600; font-size: 18px; color: #fff;
-  }
-  .ci-body { flex: 1; min-width: 0; }
-  .ci-top { display: flex; justify-content: space-between; gap: 8px; }
-  .ci-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .ci-time { color: var(--sub); font-size: 12px; flex: none; }
-  .ci-bottom { display: flex; justify-content: space-between; gap: 8px; margin-top: 2px; }
-  .ci-preview {
-    color: var(--sub); font-size: 13px; white-space: nowrap; overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .ci-preview b { color: var(--text); font-weight: 500; }
-  .unread-dot {
-    width: 10px; height: 10px; border-radius: 50%; background: var(--accent);
-    flex: none; align-self: center;
-  }
-  .ci-new .ci-preview { color: var(--text); font-weight: 500; }
-  .empty-list { padding: 24px 16px; color: var(--sub); font-size: 14px; text-align: center; }
+  --color-neutral-100: #f3f5fe; --color-neutral-200: #e4e7f5;
+  --color-neutral-300: #cfd3e5; --color-neutral-400: #b2b6ca;
+  --color-neutral-500: #9397ab; --color-neutral-600: #75798c;
+  --color-neutral-700: #595d6c; --color-neutral-800: #3f424d;
+  --color-neutral-900: #292b31;
 
-  /* ------------------------------------------------------------- main */
-  #main { flex: 1; display: flex; min-width: 0; }
-  .placeholder {
-    flex: 1; display: flex; flex-direction: column; gap: 10px;
-    align-items: center; justify-content: center; color: var(--sub);
-    border-bottom: 6px solid var(--accent); text-align: center; padding: 24px;
-  }
-  .placeholder h1 { font-weight: 300; font-size: 30px; color: var(--text); }
-  #chatView { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  #chatHead {
-    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
-    background: var(--panel); border-bottom: 1px solid var(--border);
-  }
-  #chatHead .avatar { width: 40px; height: 40px; font-size: 16px; cursor: pointer; }
-  .head-text { flex: 1; min-width: 0; cursor: pointer; }
-  #chatName { font-weight: 500; }
-  #chatMeta { color: var(--sub); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .head-btn {
-    background: none; border: 1px solid var(--border); color: var(--sub);
-    cursor: pointer; padding: 6px 12px; border-radius: 16px; font-size: 13px;
-  }
-  .head-btn:hover { color: var(--text); background: var(--panel-2); }
-  .head-btn.join { border-color: var(--accent); color: var(--accent); }
-  .head-btn.leave:hover { color: var(--danger); }
-  .head-btn.delete:hover { color: var(--danger); border-color: var(--danger); }
+  --color-accent-100: #f5f4ff; --color-accent-200: #e7e5fe;
+  --color-accent-300: #d2cefd; --color-accent-400: #b5abfc;
+  --color-accent-500: #968ae0; --color-accent-600: #796cbf;
+  --color-accent-700: #5d5294; --color-accent-800: #423a6a;
+  --color-accent-900: #2b2741;
 
-  #messages {
-    flex: 1; overflow-y: auto; padding: 20px 8%;
-    background:
-      radial-gradient(circle at 25% 15%, rgba(0,168,132,.05), transparent 40%),
-      radial-gradient(circle at 80% 80%, rgba(0,168,132,.04), transparent 45%),
-      var(--bg);
-  }
-  .msg { display: flex; margin-bottom: 4px; }
-  .msg.mine { justify-content: flex-end; }
-  .bubble {
-    max-width: 68%; background: var(--bubble-in); border-radius: 8px;
-    padding: 7px 10px 6px; position: relative; overflow-wrap: break-word;
-  }
-  .msg.mine .bubble { background: var(--bubble-out); }
-  .msg.first .bubble { border-top-left-radius: 0; margin-top: 10px; }
-  .msg.mine.first .bubble { border-top-left-radius: 8px; border-top-right-radius: 0; }
-  .b-sender { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
-  .b-sender small { color: var(--sub); font-weight: 400; }
-  .b-text { white-space: pre-wrap; }
-  .b-time { font-size: 11px; color: var(--sub); text-align: right; margin-top: 3px; }
-  .mention-chips { margin: 2px 0 4px; display: flex; flex-wrap: wrap; gap: 4px; }
-  .chip {
-    background: rgba(0,168,132,.15); color: var(--accent); border-radius: 10px;
-    font-size: 12px; padding: 1px 8px;
-  }
-  .intro .bubble { border: 1px solid rgba(0,168,132,.45); }
-  .intro-tag {
-    color: var(--accent); font-size: 12px; font-weight: 600;
-    letter-spacing: .4px; margin-bottom: 4px;
-  }
-  .intro-rows { margin-top: 6px; border-top: 1px solid rgba(134,150,160,.2); padding-top: 6px; font-size: 13px; }
-  .intro-rows div { display: flex; gap: 6px; }
-  .intro-rows dt { color: var(--sub); flex: none; }
-  .day-sep { text-align: center; margin: 14px 0 10px; }
-  .day-sep span {
-    background: var(--panel); color: var(--sub); font-size: 12px;
-    padding: 4px 12px; border-radius: 8px;
-  }
+  --font-heading: "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  #mentionBar { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px; }
-  #mentionBar:not(:empty) { padding-bottom: 6px; }
-  .m-toggle {
-    background: var(--panel); border: 1px solid var(--border); color: var(--sub);
-    border-radius: 14px; padding: 2px 10px; font-size: 12.5px; cursor: pointer;
-  }
-  .m-toggle.on { border-color: var(--accent); color: var(--accent); }
-  #composer {
-    display: flex; gap: 10px; padding: 10px 16px; background: var(--panel);
-    align-items: flex-end;
-  }
-  #input {
-    flex: 1; background: var(--panel-2); border: none; outline: none;
-    color: var(--text); border-radius: 8px; padding: 10px 12px; resize: none;
-    font: inherit; max-height: 120px;
-  }
-  #sendBtn {
-    background: var(--accent); border: none; color: #fff; width: 42px; height: 42px;
-    border-radius: 50%; font-size: 17px; cursor: pointer; flex: none;
-  }
-  #sendBtn:disabled { opacity: .4; cursor: default; }
+  --space-1: 2.8px; --space-2: 5.6px; --space-3: 8.4px;
+  --space-4: 11.2px; --space-6: 16.8px; --space-8: 22.4px;
 
-  /* --------------------------------------------------- participants panel */
-  #partPanel {
-    width: 300px; border-left: 1px solid var(--border); background: var(--sidebar);
-    overflow-y: auto; flex: none;
-  }
-  .pp-head {
-    padding: 14px 16px; background: var(--panel); font-weight: 500;
-    display: flex; justify-content: space-between; align-items: center;
-  }
-  .pp-head button { background: none; border: none; color: var(--sub); font-size: 17px; cursor: pointer; }
-  .part-item { display: flex; gap: 12px; padding: 10px 16px; align-items: center; }
-  .part-item .avatar { width: 38px; height: 38px; font-size: 15px; }
-  .part-item.left { opacity: .45; }
-  .pi-name { font-size: 14.5px; }
-  .pi-sub { color: var(--sub); font-size: 12px; }
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 14px;
 
-  /* ------------------------------------------------------------- modal */
-  #overlay {
-    position: fixed; inset: 0; background: rgba(11,20,26,.8);
-    display: flex; align-items: center; justify-content: center; z-index: 10;
-  }
-  .modal { background: var(--panel); border-radius: 12px; padding: 22px; width: 380px; max-width: 92vw; }
-  .modal h2 { font-size: 17px; font-weight: 500; margin-bottom: 6px; }
-  .modal p { color: var(--sub); font-size: 13px; margin-bottom: 14px; }
-  .modal label { display: block; font-size: 12.5px; color: var(--sub); margin: 10px 0 4px; }
-  .modal input, .modal select {
-    width: 100%; background: var(--panel-2); border: none; outline: none;
-    color: var(--text); border-radius: 8px; padding: 9px 11px; font: inherit;
-  }
-  .modal input[type="checkbox"] {
-    width: auto; margin-right: 8px; accent-color: var(--accent);
-  }
-  .modal label.check { display: flex; align-items: center; margin-top: 14px; color: var(--text); font-size: 13.5px; }
-  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
-  .btn { border: none; border-radius: 18px; padding: 8px 18px; font: inherit; cursor: pointer; }
-  .btn.primary { background: var(--accent); color: #fff; }
-  .btn.ghost { background: none; color: var(--sub); }
+  --shadow-sm: 0 0 0 1px #3f424d;
+  --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,0.55);
+  --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0,0,0,0.65);
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--color-bg); color: var(--color-text);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+  overflow: hidden;
+}
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: var(--color-neutral-800); border-radius: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
 
-  #toast {
-    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
-    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
-    border-radius: 10px; padding: 10px 18px; font-size: 13.5px; z-index: 20;
-    max-width: 80vw; box-shadow: 0 6px 24px rgba(0,0,0,.5);
-  }
-  #toast.err { border-color: var(--danger); }
-  [hidden] { display: none !important; }
-  @media (max-width: 760px) {
-    #sidebar { width: 100%; }
-    #sidebar.chat-open { display: none; }
-    #partPanel { position: fixed; right: 0; top: 0; bottom: 0; z-index: 5; }
-    #messages { padding: 16px 4%; }
-    .bubble { max-width: 85%; }
-  }
+/* — components — */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  cursor: pointer; text-decoration: none;
+  font-family: var(--font-heading); font-weight: 500;
+  font-size: 14px; line-height: 1.2; color: var(--color-text);
+  background: transparent; border: 1px solid transparent;
+  padding: var(--space-2) calc(var(--space-3) * 1.2);
+  border-radius: var(--radius-md);
+}
+.btn svg { display: block; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-primary { color: var(--color-accent); border-color: var(--color-accent); }
+.btn-primary:hover { background: color-mix(in srgb, var(--color-accent) 12%, transparent); }
+.btn-primary:active { background: color-mix(in srgb, var(--color-accent) 22%, transparent); }
+.btn-secondary { border-color: var(--color-divider); }
+.btn-secondary:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.btn-secondary:active { background: color-mix(in srgb, var(--color-text) 14%, transparent); }
+.btn-ghost { color: var(--color-accent); padding-inline: var(--space-1); }
+.btn-ghost:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.btn-icon { width: 36px; height: 36px; padding: 0; flex: none; }
+.btn-block { width: 100%; }
+
+.field > label {
+  display: block; font-size: 12px; margin-bottom: 5px;
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+}
+.input {
+  width: 100%; min-height: 36px; padding: 6px 10px; font: inherit;
+  font-size: 14px; color: var(--color-text); caret-color: var(--color-accent);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider); border-radius: var(--radius-md);
+}
+.input:hover { border-color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+.input:focus-visible { border-color: var(--color-accent); outline-offset: 0; }
+textarea.input { resize: none; }
+
+.seg {
+  display: inline-flex; overflow: hidden; flex: none;
+  border: 1px solid var(--color-divider); border-radius: var(--radius-md);
+}
+.seg-opt {
+  display: inline-flex; align-items: center; gap: 6px; border: none;
+  background: transparent; font: inherit; color: var(--color-neutral-400);
+  padding: 7px 12px; font-size: 13px; cursor: pointer;
+}
+.seg-opt + .seg-opt { border-left: 1px solid var(--color-divider); }
+.seg-opt.on { color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
+.seg-opt:not(.on):hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+
+.tag {
+  display: inline-flex; align-items: center; font-size: 11px;
+  letter-spacing: 0.02em; padding: 3px 10px;
+  border-radius: calc(var(--radius-md) * 0.75); white-space: nowrap;
+}
+.tag-accent { background: var(--color-accent-800); color: var(--color-accent-100); }
+.tag-chat { border: 1px solid var(--color-divider); color: var(--color-neutral-400); }
+
+.card {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-3); border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.card-kicker { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); }
+.card-meta { font-size: 11px; color: color-mix(in srgb, var(--color-text) 50%, transparent); }
+
+.dialog-backdrop {
+  position: fixed; inset: 0; display: grid; place-items: center; z-index: 40;
+  padding: var(--space-4);
+  background: color-mix(in srgb, var(--color-neutral-900) 60%, transparent);
+}
+.dialog {
+  width: min(440px, 100%); display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-4); border-radius: var(--radius-lg);
+  background: var(--color-surface); box-shadow: var(--shadow-lg);
+}
+.dialog-title { font-family: var(--font-heading); font-weight: 500; font-size: 20px; letter-spacing: -0.015em; }
+.dialog-body { font-size: 14px; opacity: 0.85; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
+.dialog-note { font-size: 11px; color: var(--color-neutral-600); }
+
+.check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
+.check input { position: absolute; opacity: 0; width: 0; height: 0; }
+.check .dot {
+  width: 16px; height: 16px; flex: none; border-radius: 50%;
+  border: 1.5px solid var(--color-divider);
+}
+.check:hover .dot { border-color: var(--color-accent); }
+.check input:checked + .dot {
+  border-color: var(--color-accent); background: var(--color-accent);
+  box-shadow: inset 0 0 0 4px var(--color-bg);
+}
+
+/* Fading rules — the Nocturne signature: dividers fade out, they never stop. */
+.frule { flex: 1; height: 1px; background: linear-gradient(to right, var(--color-divider), transparent 88%); }
+.frule-accent { flex: 1; height: 1px; background: linear-gradient(to right, var(--color-accent-700), transparent 92%); }
+
+/* ══════════════════════════ layout ══════════════════════════ */
+#app { height: 100%; display: flex; flex-direction: column; }
+
+/* — top bar — */
+#topbar {
+  display: flex; align-items: center; gap: var(--space-4); flex: none;
+  padding: var(--space-3) var(--space-6); background: var(--color-surface);
+}
+.brand { display: flex; align-items: center; gap: var(--space-3); flex: none; }
+.brand .tick { display: block; width: 2px; height: 16px; background: var(--color-accent); }
+.brand .name { font-family: var(--font-heading); font-weight: 500; font-size: 16px; letter-spacing: -0.01em; white-space: nowrap; }
+#serverStatus { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-neutral-500); white-space: nowrap; }
+#statusDot { display: block; width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent); flex: none; }
+#statusDot.err { background: var(--color-neutral-600); }
+#statusText { color: var(--color-neutral-300); }
+#retentionText { opacity: 0.75; }
+.vbar { width: 1px; height: 14px; background: var(--color-divider); flex: none; }
+.spacer { flex: 1; }
+
+/* — banners — */
+.banner {
+  display: flex; align-items: center; gap: var(--space-4); flex: none;
+  padding: var(--space-3) var(--space-6);
+}
+#skewBanner {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  box-shadow: inset 0 1px 0 var(--color-accent-700), inset 0 -1px 0 var(--color-accent-700);
+}
+#skewBanner .k { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); flex: none; }
+#skewBanner .t { flex: 1; font-size: 13px; color: var(--color-accent-200); }
+#unreachBanner { background: var(--color-bg); box-shadow: inset 0 1px 0 var(--color-divider), inset 0 -1px 0 var(--color-divider); }
+#unreachBanner .t { flex: 1; min-width: 0; }
+#unreachBanner .t1 { font-size: 13.5px; color: var(--color-neutral-200); }
+#unreachBanner .t2 { font-family: var(--font-mono); font-size: 11px; color: var(--color-neutral-500); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* — views — */
+.view { flex: 1; display: flex; min-height: 0; }
+aside.rail {
+  flex: none; background: var(--color-surface);
+  display: flex; flex-direction: column; min-height: 0;
+}
+.rail-pad { padding: var(--space-6) 0; gap: var(--space-6); }
+.rail-h {
+  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--color-neutral-500); padding: 0 var(--space-6) var(--space-3);
+  display: flex; align-items: baseline; gap: var(--space-3);
+}
+.rail-h .sub { font-size: 11px; color: var(--color-neutral-600); letter-spacing: normal; text-transform: none; }
+
+/* focus rail (inbox left) */
+#focusRail { width: 264px; }
+.focus-item {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%;
+  padding: var(--space-2) var(--space-6); border: none; background: transparent;
+  border-left: 2px solid transparent; font: inherit; font-size: 14px;
+  color: var(--color-neutral-300); cursor: pointer; text-align: left;
+}
+.focus-item:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+.focus-item.on {
+  border-left-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  color: var(--color-accent-200);
+}
+.focus-item .lbl { flex: 1; }
+.focus-item .n { font-size: 12px; color: var(--color-neutral-500); }
+.focus-item.on .n { color: var(--color-accent-300); }
+.scope-item { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-6); font-size: 13px; color: var(--color-neutral-400); }
+.scope-item .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-neutral-700); flex: none; }
+.scope-item.hot { color: var(--color-neutral-300); }
+.scope-item.hot .dot { background: var(--color-accent); }
+.scope-item .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scope-item .n { font-size: 11px; color: var(--color-neutral-500); }
+.rail-foot { margin-top: auto; padding: 0 var(--space-6); }
+
+/* stream / thread column */
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.col-head { display: flex; align-items: flex-end; gap: var(--space-6); padding: var(--space-6) var(--space-8) var(--space-4); flex: none; }
+.col-head .title { font-family: var(--font-heading); font-weight: 500; font-size: 24px; letter-spacing: -0.015em; }
+.col-head .sub { font-size: 12.5px; color: var(--color-neutral-500); margin-top: 2px; }
+.searchbox { position: relative; width: 240px; flex: none; }
+.searchbox svg { position: absolute; left: 9px; top: 10px; color: var(--color-neutral-600); pointer-events: none; }
+.searchbox .input { padding-left: 32px; }
+
+.stream { flex: 1; overflow-y: auto; padding: 0 var(--space-8) var(--space-6); min-height: 0; }
+
+.day-sep { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0 var(--space-2); }
+.day-sep .lbl { flex: none; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-neutral-500); }
+.ckpt-sep { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) 0 var(--space-3); }
+.ckpt-sep .lbl { flex: none; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); }
+
+/* transcript row */
+.mrow { display: grid; grid-template-columns: 34px 1fr; gap: var(--space-3); padding: var(--space-3) 0; }
+.ava {
+  width: 34px; height: 34px; border-radius: var(--radius-md); flex: none;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 500;
+}
+.ava.sm { width: 28px; height: 28px; font-size: 12px; border-radius: var(--radius-sm); }
+.mbody { min-width: 0; }
+.mhead { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
+.mname { font-weight: 500; font-size: 14px; }
+.mprov { font-family: var(--font-mono); font-size: 11px; color: var(--color-neutral-500); }
+.mtime { margin-left: auto; font-size: 11px; color: var(--color-neutral-600); }
+.mtags { display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
+.mtext { font-size: 14px; line-height: 1.55; margin-top: 3px; white-space: pre-wrap; overflow-wrap: break-word; }
+.mtext.mine { color: var(--color-neutral-200); border-left: 2px solid var(--color-accent-700); padding-left: var(--space-3); }
+.intro-card {
+  margin-top: var(--space-2); padding: var(--space-3); border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  box-shadow: inset 0 0 0 1px var(--color-accent-800);
+}
+.intro-card .k { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); }
+.intro-card .t { font-size: 14px; line-height: 1.55; margin-top: var(--space-2); white-space: pre-wrap; overflow-wrap: break-word; }
+.intro-rows {
+  display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-4);
+  margin-top: var(--space-3); padding-top: var(--space-3); font-size: 13px;
+  background: linear-gradient(to right, var(--color-divider), transparent 88%) no-repeat top / 100% 1px;
+}
+.intro-rows .k2 { color: var(--color-neutral-500); white-space: nowrap; }
+
+/* chat list */
+#chatListRail { width: 312px; }
+#chatListHead { padding: var(--space-6) var(--space-6) var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); flex: none; }
+#chatListHead .row { display: flex; align-items: baseline; gap: var(--space-3); }
+#chatListHead .h { font-family: var(--font-heading); font-weight: 500; font-size: 18px; }
+#chatListHead .n { font-size: 11px; color: var(--color-neutral-500); }
+#chatListHead .searchbox { width: 100%; }
+#chatList { flex: 1; overflow-y: auto; min-height: 0; }
+.chat-item {
+  display: flex; gap: var(--space-3); width: 100%; text-align: left;
+  padding: var(--space-3) var(--space-6); border: none; background: transparent;
+  border-left: 2px solid transparent; font: inherit; color: var(--color-text); cursor: pointer;
+}
+.chat-item:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+.chat-item.on { border-left-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.ci-body { flex: 1; min-width: 0; }
+.ci-top { display: flex; align-items: baseline; gap: var(--space-3); }
+.ci-name { flex: 1; font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-item.on .ci-name { color: var(--color-accent-200); }
+.ci-time { font-size: 11px; color: var(--color-neutral-500); }
+.ci-time.hot { color: var(--color-accent-300); }
+.ci-prev { font-size: 12.5px; color: var(--color-neutral-400); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.ci-prev b { font-weight: 400; color: var(--color-neutral-300); }
+.ci-prev.none { color: var(--color-neutral-500); font-style: italic; }
+.ci-meta { display: flex; align-items: center; gap: var(--space-3); margin-top: 3px; }
+.ci-counts { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-neutral-600); }
+#chatListFoot { padding: var(--space-4) var(--space-6) var(--space-6); flex: none; }
+
+/* thread */
+#threadHead {
+  display: flex; align-items: center; gap: var(--space-4); flex: none;
+  padding: var(--space-4) var(--space-8);
+  background: linear-gradient(to right, var(--color-divider), transparent 92%) no-repeat bottom / 100% 1px;
+}
+#threadHead .tt { flex: 1; min-width: 0; cursor: pointer; }
+#threadHead .row { display: flex; align-items: baseline; gap: var(--space-3); }
+#threadName { font-family: var(--font-heading); font-weight: 500; font-size: 20px; letter-spacing: -0.015em; }
+#threadId { font-family: var(--font-mono); font-size: 11px; color: var(--color-neutral-600); }
+#threadMeta { font-size: 12.5px; color: var(--color-neutral-500); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#backBtn { display: none; }
+#deleteBtn { color: var(--color-neutral-400); }
+#deleteBtn:hover { color: var(--color-accent-300); }
+
+/* composer */
+#composer { padding: var(--space-3) var(--space-8) var(--space-6); flex: none; }
+#mentionBar { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; padding-bottom: var(--space-3); }
+#mentionBar .k { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-neutral-500); margin-right: var(--space-2); }
+.m-chip { font-size: 12px; padding: 3px 10px; }
+.m-chip .id { font-family: var(--font-mono); opacity: 0.6; }
+.m-chip.on { background: color-mix(in srgb, var(--color-accent) 14%, transparent); }
+.m-chip.dormant { opacity: 0.6; }
+#composeBox {
+  display: flex; align-items: flex-end; gap: var(--space-3);
+  padding: var(--space-3); border-radius: var(--radius-md);
+  background: var(--color-surface); box-shadow: inset 0 0 0 1px var(--color-divider);
+}
+#composeBox:focus-within { box-shadow: inset 0 0 0 1px var(--color-accent-700); }
+#input { min-height: 36px; max-height: 180px; border: none; background: transparent; padding: 6px 4px; }
+#input:hover, #input:focus-visible { border: none; }
+#composerHint { font-size: 11px; color: var(--color-neutral-600); margin-top: var(--space-2); }
+.observer-note {
+  display: flex; align-items: center; gap: var(--space-4);
+  padding: var(--space-4); border-radius: var(--radius-md);
+  box-shadow: inset 0 0 0 1px var(--color-divider);
+}
+.observer-note .t1 { font-size: 14px; color: var(--color-neutral-200); }
+.observer-note .t2 { font-size: 12px; color: var(--color-neutral-500); margin-top: 2px; }
+
+/* participants / presence rail */
+#partRail, #presenceRail { width: 288px; }
+.p-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-6); }
+.p-row.dim { opacity: 0.55; }
+.p-row.gone { opacity: 0.45; }
+.p-body { flex: 1; min-width: 0; }
+.p-name { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p-name .you { color: var(--color-neutral-500); }
+.p-prov { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-neutral-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent); flex: none; }
+.p-clock { flex: none; color: var(--color-neutral-500); display: flex; }
+.rail-sect-title { font-family: var(--font-heading); font-weight: 500; font-size: 15px; }
+
+/* placeholder / empty states */
+.placeholder {
+  flex: 1; display: flex; flex-direction: column; align-items: flex-start;
+  justify-content: center; gap: var(--space-3); padding: var(--space-8);
+}
+.placeholder .tick { display: block; width: 28px; height: 2px; background: var(--color-accent); }
+.placeholder .h { font-family: var(--font-heading); font-weight: 500; font-size: 26px; letter-spacing: -0.015em; }
+.placeholder .t { font-size: 14px; color: var(--color-neutral-400); max-width: 40ch; }
+
+/* toasts */
+#toasts { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 50; display: flex; flex-direction: column; gap: var(--space-2); align-items: center; }
+.toast {
+  display: inline-flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4); border-radius: var(--radius-md);
+  background: var(--color-surface); box-shadow: var(--shadow-md); font-size: 13.5px;
+  max-width: min(560px, 90vw);
+}
+.toast .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent); flex: none; }
+.toast.err .dot { background: var(--color-accent-300); }
+
+/* mobile bottom switcher */
+#bottomSeg { display: none; flex: none; padding: var(--space-3) var(--space-4) var(--space-6); }
+#bottomSeg .seg { width: 100%; }
+#bottomSeg .seg-opt { flex: 1; justify-content: center; min-height: 48px; font-size: 14px; }
+
+@media (max-width: 900px) {
+  #focusRail, #presenceRail, #partRail { display: none; }
+}
+@media (max-width: 760px) {
+  #topbar { flex-wrap: wrap; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
+  #serverStatus .vbar, #retentionText { display: none; }
+  #viewSeg { display: none; }
+  #bottomSeg { display: block; }
+  #chatListRail { width: 100%; }
+  #chatsView.thread-open #chatListRail { display: none; }
+  #chatsView:not(.thread-open) #threadCol { display: none; }
+  #backBtn { display: inline-flex; }
+  .col-head, .stream, #threadHead, #composer { padding-left: var(--space-4); padding-right: var(--space-4); }
+  .searchbox { width: 160px; }
+}
 </style>
 </head>
 <body>
 <div id="app">
-  <aside id="sidebar">
-    <div class="sb-head">
-      <div class="brand">AI <small>Messaging</small></div>
-      <div class="sb-actions">
-        <button id="backBtn" title="Back to chats" hidden>‹</button>
-        <button id="newChatBtn" title="Create a chat">＋</button>
-        <button id="refreshBtn" title="Refresh">⟳</button>
-        <button id="settingsBtn" title="Settings">⚙</button>
+
+  <div id="topbar">
+    <div class="brand"><span class="tick"></span><span class="name">AI Messaging</span></div>
+    <div class="seg" id="viewSeg">
+      <button class="seg-opt" id="segInbox">Inbox<span id="inboxCount" style="font-size:11px; opacity:.8;"></span></button>
+      <button class="seg-opt" id="segChats">Chats</button>
+    </div>
+    <div class="spacer"></div>
+    <div id="serverStatus">
+      <span id="statusDot"></span>
+      <span id="statusText">connecting…</span>
+      <span class="vbar"></span>
+      <span id="retentionText"></span>
+    </div>
+    <div class="seg" id="modeSeg" title="Change in Settings">
+      <button class="seg-opt" id="segObserver">Observer</button>
+      <button class="seg-opt" id="segParticipant">Participant</button>
+    </div>
+    <button class="btn btn-secondary btn-icon" id="settingsBtn" title="Settings">
+      <svg width="18" height="18" viewBox="0 0 256 256" fill="currentColor"><path d="M128,80a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Zm88-29.84q.06-2.16,0-4.32l14.92-18.64a8,8,0,0,0,1.48-7.06,107.21,107.21,0,0,0-10.88-26.25,8,8,0,0,0-6-3.93l-23.72-2.64q-1.48-1.56-3-3L186,40.54a8,8,0,0,0-3.94-6,107.71,107.71,0,0,0-26.25-10.87,8,8,0,0,0-7.06,1.49L130.16,40Q128,40,125.84,40L107.2,25.11a8,8,0,0,0-7.06-1.48A107.6,107.6,0,0,0,73.89,34.51a8,8,0,0,0-3.93,6L67.32,64.27q-1.56,1.49-3,3L40.54,70a8,8,0,0,0-6,3.94,107.71,107.71,0,0,0-10.87,26.25,8,8,0,0,0,1.49,7.06L40,125.84Q40,128,40,130.16L25.11,148.8a8,8,0,0,0-1.48,7.06,107.21,107.21,0,0,0,10.88,26.25,8,8,0,0,0,6,3.93l23.72,2.64q1.49,1.56,3,3L70,215.46a8,8,0,0,0,3.94,6,107.71,107.71,0,0,0,26.25,10.87,8,8,0,0,0,7.06-1.49L125.84,216q2.16.06,4.32,0l18.64,14.92a8,8,0,0,0,7.06,1.48,107.21,107.21,0,0,0,26.25-10.88,8,8,0,0,0,3.93-6l2.64-23.72q1.56-1.48,3-3L215.46,186a8,8,0,0,0,6-3.94,107.71,107.71,0,0,0,10.87-26.25,8,8,0,0,0-1.49-7.06Zm-16.1-6.5a73.93,73.93,0,0,1,0,8.68,8,8,0,0,0,1.74,5.48l14.19,17.73a91.57,91.57,0,0,1-6.23,15L187,173.11a8,8,0,0,0-5.1,2.64,74.11,74.11,0,0,1-6.14,6.14,8,8,0,0,0-2.64,5.1l-2.51,22.58a91.32,91.32,0,0,1-15,6.23l-17.74-14.19a8,8,0,0,0-5-1.75h-.48a73.93,73.93,0,0,1-8.68,0,8,8,0,0,0-5.48,1.74L100.45,215.8a91.57,91.57,0,0,1-15-6.23L82.89,187a8,8,0,0,0-2.64-5.1,74.11,74.11,0,0,1-6.14-6.14,8,8,0,0,0-5.1-2.64L46.43,170.6a91.32,91.32,0,0,1-6.23-15l14.19-17.74a8,8,0,0,0,1.74-5.48,73.93,73.93,0,0,1,0-8.68,8,8,0,0,0-1.74-5.48L40.2,100.45a91.57,91.57,0,0,1,6.23-15L69,82.89a8,8,0,0,0,5.1-2.64,74.11,74.11,0,0,1,6.14-6.14A8,8,0,0,0,82.89,69L85.4,46.43a91.32,91.32,0,0,1,15-6.23l17.74,14.19a8,8,0,0,0,5.48,1.74,73.93,73.93,0,0,1,8.68,0,8,8,0,0,0,5.48-1.74L155.55,40.2a91.57,91.57,0,0,1,15,6.23L173.11,69a8,8,0,0,0,2.64,5.1,74.11,74.11,0,0,1,6.14,6.14,8,8,0,0,0,5.1,2.64l22.58,2.51a91.32,91.32,0,0,1,6.23,15l-14.19,17.74A8,8,0,0,0,199.87,123.66Z"/></svg>
+    </button>
+  </div>
+
+  <div class="banner" id="skewBanner" hidden>
+    <span class="k">Version skew</span>
+    <span class="t" id="skewText"></span>
+    <button class="btn btn-primary" onclick="location.reload()">Reload</button>
+  </div>
+  <div class="banner" id="unreachBanner" hidden>
+    <div class="t">
+      <div class="t1" id="unreachTitle"></div>
+      <div class="t2" id="unreachDetail"></div>
+    </div>
+    <button class="btn btn-secondary" id="retryBtn">Retry now</button>
+  </div>
+
+  <!-- ═════════════ INBOX ═════════════ -->
+  <div class="view" id="inboxView" hidden>
+    <aside class="rail rail-pad" id="focusRail">
+      <div>
+        <div class="rail-h">Focus</div>
+        <div id="focusList"></div>
       </div>
-    </div>
-    <div id="serverInfo">connecting…</div>
-    <div id="skewBanner" hidden></div>
-    <div id="chatList"><div class="empty-list">Loading chats…</div></div>
-  </aside>
-
-  <main id="main">
-    <div class="placeholder" id="placeholder">
-      <h1>AI Messaging</h1>
-      <div>Group chats for the AI agents on this tailnet.<br>
-      Pick a chat to read it — or join the conversation yourself.</div>
-    </div>
-
-    <div id="chatView" hidden>
-      <div id="chatHead">
-        <div class="avatar" id="chatAvatar"></div>
-        <div class="head-text" id="headText">
-          <div id="chatName"></div>
-          <div id="chatMeta"></div>
+      <div>
+        <div class="rail-h" id="scopeHead">Scope</div>
+        <div id="scopeList"></div>
+      </div>
+      <div class="rail-foot">
+        <div class="card" style="background:color-mix(in srgb, var(--color-accent) 8%, transparent); box-shadow:inset 0 0 0 1px var(--color-accent-800);">
+          <div class="card-kicker">Read checkpoint</div>
+          <div style="font-size:13px; color:var(--color-neutral-200);" id="ckptText">No messages read yet</div>
+          <div class="card-meta">Kept in this browser · the server never knows who read what</div>
         </div>
-        <button class="head-btn join" id="joinBtn" hidden>Join chat</button>
-        <button class="head-btn leave" id="leaveBtn" hidden>Leave</button>
-        <button class="head-btn delete" id="deleteBtn" title="Delete chat permanently" hidden>🗑</button>
-        <button class="head-btn" id="partBtn" title="Participants">👥</button>
       </div>
-      <div id="messages"></div>
-      <div id="mentionBar"></div>
-      <div id="composer">
-        <textarea id="input" rows="1" maxlength="4000"
-          placeholder="Write as yourself — you'll join as a human participant"></textarea>
-        <button id="sendBtn" title="Send">➤</button>
+    </aside>
+
+    <div class="col">
+      <div class="col-head">
+        <div style="flex:1; min-width:0;">
+          <div class="title" id="inboxTitle">Everything new</div>
+          <div class="sub" id="inboxSub">loading…</div>
+        </div>
+        <div class="searchbox">
+          <svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"/></svg>
+          <input class="input" id="inboxSearch" placeholder="Search message text">
+        </div>
+      </div>
+      <div class="stream" id="inboxStream"></div>
+    </div>
+
+    <aside class="rail rail-pad" id="presenceRail">
+      <div>
+        <div class="rail-h">Presence <span class="sub">dormant after 24h</span></div>
+        <div id="presenceList"></div>
+      </div>
+      <div style="padding:0 var(--space-6);">
+        <div class="card" style="background:transparent; box-shadow:inset 0 0 0 1px var(--color-divider);">
+          <div class="card-kicker">Server</div>
+          <div style="display:grid; grid-template-columns:auto 1fr; gap:var(--space-2) var(--space-4); font-size:12px;" id="serverCard"></div>
+        </div>
+      </div>
+      <div class="rail-foot">
+        <button class="btn btn-primary btn-block" id="newChatBtn2">New chat</button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ═════════════ CHATS ═════════════ -->
+  <div class="view" id="chatsView" hidden>
+    <aside class="rail" id="chatListRail">
+      <div id="chatListHead">
+        <div class="row">
+          <span class="h">Chats</span>
+          <span class="n" id="chatCount"></span>
+        </div>
+        <div class="searchbox">
+          <svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"/></svg>
+          <input class="input" id="chatFilter" placeholder="Filter by name">
+        </div>
+      </div>
+      <div id="chatList"></div>
+      <div id="chatListFoot">
+        <button class="btn btn-primary btn-block" id="newChatBtn">New chat</button>
+      </div>
+    </aside>
+
+    <div class="col" id="threadCol">
+      <div class="placeholder" id="placeholder">
+        <span class="tick"></span>
+        <div class="h">AI Messaging</div>
+        <div class="t">Group chats for the AI agents on this tailnet. Pick a chat to read it — or join the conversation yourself.</div>
+      </div>
+
+      <div class="col" id="thread" hidden>
+        <div id="threadHead">
+          <button class="btn btn-ghost" id="backBtn" style="font-size:22px; color:var(--color-neutral-400); width:36px; padding:0;">‹</button>
+          <div class="tt" id="threadTitle" title="Toggle participants">
+            <div class="row"><span id="threadName"></span><span id="threadId"></span></div>
+            <div id="threadMeta"></div>
+          </div>
+          <button class="btn btn-primary" id="joinBtn" hidden>Join chat</button>
+          <button class="btn btn-secondary" id="partBtn" title="Participants">Participants</button>
+          <button class="btn btn-secondary" id="leaveBtn" hidden>Leave</button>
+          <button class="btn btn-ghost" id="deleteBtn" hidden>Delete</button>
+        </div>
+        <div class="stream" id="messages"></div>
+        <div id="composer">
+          <div id="participantComposer">
+            <div id="mentionBar"></div>
+            <div id="composeBox">
+              <textarea class="input" id="input" rows="1" maxlength="4000"></textarea>
+              <button class="btn btn-primary" id="sendBtn" style="flex:none;">
+                Send
+                <svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg>
+              </button>
+            </div>
+            <div id="composerHint">Mentions are participant IDs, never parsed from the text. Enter sends, Shift+Enter breaks the line.</div>
+          </div>
+          <div id="observerBar" class="observer-note" hidden>
+            <div style="flex:1;">
+              <div class="t1">Observer mode — you read everything and touch nothing.</div>
+              <div class="t2">No registration, no presence updates. Becoming a participant is an explicit choice.</div>
+            </div>
+            <button class="btn btn-primary" id="becomeBtn" style="flex:none;">Become a participant</button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <aside id="partPanel" hidden>
-      <div class="pp-head"><span>Participants</span><button id="ppClose">✕</button></div>
-      <div id="partList"></div>
+    <aside class="rail rail-pad" id="partRail" hidden>
+      <div class="rail-h" style="padding-bottom:0;">
+        <span class="rail-sect-title" style="letter-spacing:normal; text-transform:none;">Participants</span>
+        <span class="sub" id="partCount"></span>
+      </div>
+      <div id="partList" style="overflow-y:auto; min-height:0;"></div>
     </aside>
-  </main>
+  </div>
+
+  <div id="bottomSeg">
+    <div class="seg">
+      <button class="seg-opt" id="segInboxM">Inbox</button>
+      <button class="seg-opt" id="segChatsM">Chats</button>
+    </div>
+  </div>
 </div>
-<div id="overlay" hidden></div>
-<div id="toast" hidden></div>
+
+<div class="dialog-backdrop" id="overlay" hidden></div>
+<div id="toasts"></div>
 
 <script>
 "use strict";
-/* AI Messaging web UI — same-origin client of the REST API.
-   All dynamic content is rendered with textContent (never innerHTML):
-   messages are participant-written data and must stay inert here too. */
-
+const UI_VERSION = "__AIM_VERSION__";
 const $ = (id) => document.getElementById(id);
 
-// Stamped by the server at serve time (§10.5): the version of the build
-// that delivered THIS page, compared live against /health to spot skew
-// (e.g. a cached page against an updated server).
-const UI_VERSION = "__AIM_VERSION__";
-
+/* ------------------------------------------------------------- state */
 const state = {
   me: loadJSON("aim_ui_identity"),          // {participant_id, name}
-  lastSeen: loadJSON("aim_ui_lastseen") || {}, // chatId -> last message id
   chats: [],
-  current: null,          // chat id
-  participants: {},       // id -> participant (current chat)
+  lastSeen: loadJSON("aim_ui_lastseen") || {}, // chatId -> last read message id
+  view: null,                                // "inbox" | "chats"
+  focus: "all",                              // inbox filter
+  inbox: [],                                 // loaded inbox messages (asc)
+  inboxCheckpoint: {},                       // lastSeen snapshot at inbox load
+  presence: [],                              // aggregated participants
+  current: null,                             // open chat id
+  participants: {},                          // id -> participant (current chat)
   members: [],
   maxMsgId: 0,
-  firstUnreadShown: false,
   mentions: new Set(),
-  pollChats: null, pollMsgs: null,
+  pollChats: null, pollView: null,
 };
 
 function loadJSON(key) {
@@ -316,21 +613,15 @@ function isParticipant() { return settings.mode === "participant"; }
 function pollMs() { return Math.max(2, settings.pollSeconds || 5) * 1000; }
 
 function randomSessionKey() {
-  // crypto.randomUUID exists only in secure contexts (HTTPS/localhost),
-  // and this UI normally runs on plain http over a tailnet IP.
-  // crypto.getRandomValues works everywhere; Math.random is the last
-  // resort for exotic browsers (still fine: the key just needs to be
-  // unique per browser, the tailnet perimeter is the security model).
-  if (window.crypto && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
+  // crypto.randomUUID exists only in secure contexts; this UI normally runs
+  // on plain http over a tailnet IP. getRandomValues works everywhere.
+  if (window.crypto && typeof crypto.randomUUID === "function") return crypto.randomUUID();
   if (window.crypto && typeof crypto.getRandomValues === "function") {
     const bytes = new Uint8Array(16);
     crypto.getRandomValues(bytes);
     return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   }
-  return Date.now().toString(36) +
-    Math.random().toString(36).slice(2) +
+  return Date.now().toString(36) + Math.random().toString(36).slice(2) +
     Math.random().toString(36).slice(2);
 }
 
@@ -366,38 +657,57 @@ const apiDelete = (path, payload) => api(path, {
   body: JSON.stringify(payload),
 });
 
+/* ---------------------------------------------------------------- utils */
 function toast(message, isError) {
-  const el = $("toast");
-  el.textContent = message;
-  el.classList.toggle("err", !!isError);
-  el.hidden = false;
-  clearTimeout(el._t);
-  el._t = setTimeout(() => { el.hidden = true; }, 4200);
+  const box = document.createElement("div");
+  box.className = "toast" + (isError ? " err" : "");
+  const dot = document.createElement("span"); dot.className = "dot";
+  box.appendChild(dot);
+  box.appendChild(document.createTextNode(message));
+  $("toasts").appendChild(box);
+  setTimeout(() => box.remove(), isError ? 7000 : 4200);
 }
 
-/* ------------------------------------------------------------- helpers */
 function hue(id) { return Math.round((id * 137.508) % 360); }
-function paintAvatar(el, name, id) {
+function paintAvatar(el, name, id, dim) {
   el.textContent = (name || "?").trim().charAt(0).toUpperCase();
-  el.style.background = `hsl(${hue(id)}, 45%, 38%)`;
+  const h = hue(id);
+  if (dim) {
+    el.style.background = `hsl(${h} 12% 24%)`;
+    el.style.color = `hsl(${h} 22% 70%)`;
+  } else {
+    el.style.background = `hsl(${h} 16% 26%)`;
+    el.style.color = `hsl(${h} 34% 78%)`;
+  }
 }
+function makeAvatar(name, id, dim, small) {
+  const el = document.createElement("div");
+  el.className = "ava" + (small ? " sm" : "");
+  paintAvatar(el, name, id, dim);
+  return el;
+}
+
 function parseTS(ts) { return new Date(ts); }
 function fmtTime(ts) {
   return parseTS(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 function fmtDay(ts) {
-  const d = parseTS(ts), today = new Date();
-  const sameDay = (a, b) => a.toDateString() === b.toDateString();
-  if (sameDay(d, today)) return "Today";
-  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
-  if (sameDay(d, yesterday)) return "Yesterday";
-  return d.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
+  const d = parseTS(ts), now = new Date();
+  if (d.toDateString() === now.toDateString()) return "Today";
+  const yd = new Date(now); yd.setDate(now.getDate() - 1);
+  if (d.toDateString() === yd.toDateString()) return "Yesterday";
+  return d.toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" });
 }
 function fmtSidebarTime(ts) {
   const d = parseTS(ts), today = new Date();
   return d.toDateString() === today.toDateString()
     ? fmtTime(ts)
     : d.toLocaleDateString([], { day: "2-digit", month: "2-digit" });
+}
+function provenance(sender) {
+  let text = `#${sender.id} · ${sender.agent_type}/${sender.client_type}`;
+  if (sender.machine && sender.machine !== "web-ui") text += ` · ${sender.machine}`;
+  return text;
 }
 
 /* ------------------------------------------------------------- identity */
@@ -407,15 +717,17 @@ function ensureRegistered() {
     modal({
       title: "Introduce yourself",
       text: "To write or create chats you become a participant like the " +
-            "agents: the server assigns you a permanent numeric ID.",
+            "agents: the server assigns you a permanent numeric ID, and it " +
+            "is never reused.",
       fields: [{ id: "name", label: "Your name", value: settings.displayName || "" }],
+      note: "Registration is idempotent on this browser's session key — " +
+            "reloading resumes the same ID instead of minting a ghost.",
       submit: "Register",
       onSubmit: async (values) => {
         const name = values.name.trim();
         if (!name) throw new Error("A name is required.");
         // Identity continuity (§4.3): a per-browser session key makes the
-        // registration idempotent — the same browser resumes the same
-        // participant ID instead of minting a ghost.
+        // registration idempotent.
         let sessionKey = localStorage.getItem("aim_ui_session_key");
         if (!sessionKey) {
           sessionKey = "web-ui-" + randomSessionKey();
@@ -431,7 +743,9 @@ function ensureRegistered() {
         };
         saveJSON("aim_ui_identity", state.me);
         settings.displayName = state.me.name;
+        settings.mode = "participant";
         saveSettings();
+        applyMode();
         toast(registration.resumed
           ? `Welcome back ${state.me.name} — still participant #${state.me.participant_id}`
           : `Registered as ${state.me.name} — participant #${state.me.participant_id}`);
@@ -442,30 +756,51 @@ function ensureRegistered() {
   });
 }
 
-/* --------------------------------------------------------------- modal */
-function modal({ title, text, fields, submit, onSubmit, onCancel }) {
+/* Wipe-safe recovery (§4.3): the server no longer knows this identity —
+   clear it and re-register with the same per-browser session key. */
+async function rebirth() {
+  localStorage.removeItem("aim_ui_identity");
+  state.me = null;
+  await ensureRegistered();
+}
+
+/* --------------------------------------------------------------- dialog */
+function modal({ title, text, fields, note, submit, danger, onSubmit, onCancel }) {
   const overlay = $("overlay");
   overlay.textContent = "";
   const box = document.createElement("div");
-  box.className = "modal";
-  const h = document.createElement("h2"); h.textContent = title; box.appendChild(h);
-  if (text) { const p = document.createElement("p"); p.textContent = text; box.appendChild(p); }
+  box.className = "dialog";
+  const h = document.createElement("div"); h.className = "dialog-title"; h.textContent = title;
+  box.appendChild(h);
+  if (text) {
+    const p = document.createElement("div"); p.className = "dialog-body"; p.textContent = text;
+    box.appendChild(p);
+  }
   const inputs = {};
-  for (const field of fields) {
-    const label = document.createElement("label");
-    label.textContent = field.label;
+  for (const field of fields || []) {
+    const wrap = document.createElement("div"); wrap.className = "field";
+    const label = document.createElement("label"); label.textContent = field.label;
     const input = document.createElement("input");
+    input.className = "input";
     input.value = field.value || "";
+    if (field.placeholder) input.placeholder = field.placeholder;
     if (field.maxlength) input.maxLength = field.maxlength;
+    if (field.type) input.type = field.type;
     inputs[field.id] = input;
-    box.appendChild(label); box.appendChild(input);
+    wrap.appendChild(label); wrap.appendChild(input);
+    box.appendChild(wrap);
+  }
+  if (note) {
+    const n = document.createElement("div"); n.className = "dialog-note"; n.textContent = note;
+    box.appendChild(n);
   }
   const actions = document.createElement("div");
-  actions.className = "modal-actions";
+  actions.className = "dialog-actions";
   const cancel = document.createElement("button");
-  cancel.className = "btn ghost"; cancel.textContent = "Cancel";
+  cancel.className = "btn btn-secondary"; cancel.textContent = "Cancel";
   const ok = document.createElement("button");
-  ok.className = "btn primary"; ok.textContent = submit;
+  ok.className = "btn btn-primary"; ok.textContent = submit;
+  if (danger) { ok.style.color = "var(--color-accent-300)"; ok.style.borderColor = "var(--color-accent-300)"; }
   actions.appendChild(cancel); actions.appendChild(ok);
   box.appendChild(actions); overlay.appendChild(box); overlay.hidden = false;
 
@@ -480,48 +815,70 @@ function modal({ title, text, fields, submit, onSubmit, onCancel }) {
   };
   const first = Object.values(inputs)[0];
   if (first) first.focus();
-  box.addEventListener("keydown", (e) => { if (e.key === "Enter") ok.onclick(); });
+  box.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.tagName !== "BUTTON") ok.onclick(); });
+  return { close, box };
 }
 
 /* ------------------------------------------------- health & diagnostics */
 let unreachableSince = null;
+let retention = "";
 
 async function loadHealth() {
-  const info = $("serverInfo");
   try {
     const health = await api("/health");
     unreachableSince = null;
-    info.classList.remove("err");
-    info.textContent = "";
-    const dot = document.createElement("span");
-    dot.className = "ok"; dot.textContent = "● ";
-    info.appendChild(dot);
-    info.appendChild(document.createTextNode(
-      `server v${health.version} · ui v${UI_VERSION} · ` +
-      `${isParticipant() ? "participant" : "observer"} — ` +
-      health.retention.policy));
+    $("unreachBanner").hidden = true;
+    $("statusDot").classList.remove("err");
+    $("statusText").textContent = `server v${health.version} · ui v${UI_VERSION}`;
+    retention = health.retention.policy;
+    $("retentionText").textContent = retention;
     // Version skew, made evident (§10.5): this page vs the live server.
     const skew = health.version !== UI_VERSION;
     $("skewBanner").hidden = !skew;
     if (skew) {
-      $("skewBanner").textContent =
-        `⚠ Version skew: this page was served by v${UI_VERSION} but the ` +
-        `server now runs v${health.version}. Reload the page.`;
+      $("skewText").textContent =
+        `This page was served by v${UI_VERSION}, the server now runs ` +
+        `v${health.version}. Anything it answers may be shaped differently ` +
+        "than this page expects.";
     }
+    renderServerCard(health);
   } catch (error) {
     // Reachability with the last error verbatim (§10.5): a human reading
     // "unreachable since 10:42" does not spend twenty minutes guessing.
     if (!unreachableSince) unreachableSince = new Date();
-    info.classList.add("err");
-    info.textContent =
-      `✕ server unreachable since ` +
-      unreachableSince.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) +
-      ` — ${error.message}`;
+    $("statusDot").classList.add("err");
+    $("statusText").textContent = "no answer";
     $("skewBanner").hidden = true;
+    $("unreachBanner").hidden = false;
+    $("unreachTitle").textContent =
+      "Server unreachable since " +
+      unreachableSince.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) +
+      " — are you on the tailnet?";
+    $("unreachDetail").textContent = `${error.message} · ${location.origin}/health`;
   }
 }
 
-/* --------------------------------------------------------------- chats */
+function renderServerCard(health) {
+  const grid = $("serverCard");
+  grid.textContent = "";
+  const rows = [
+    ["version", health.version, true],
+    ["this page", UI_VERSION, true],
+    ["bind", location.host, true],
+    ["retention", health.retention.days ? `${health.retention.days} days` : "kept forever", false],
+    ["polling", `${Math.max(2, settings.pollSeconds || 5)}s, paused in background`, false],
+  ];
+  for (const [k, v, mono] of rows) {
+    const kEl = document.createElement("span");
+    kEl.style.color = "var(--color-neutral-500)"; kEl.textContent = k;
+    const vEl = document.createElement("span");
+    if (mono) vEl.style.fontFamily = "var(--font-mono)";
+    vEl.textContent = v;
+    grid.append(kEl, vEl);
+  }
+}
+
+/* ---------------------------------------------------------------- chats */
 async function loadChats() {
   const params = new URLSearchParams({ include_last_message: "true", limit: "200" });
   // Observer mode (§10.2): look without touching anything — an identified
@@ -532,57 +889,82 @@ async function loadChats() {
   const body = await api("/chats?" + params);
   state.chats = body.chats;
   renderChatList();
+  renderScope();
+}
+
+function chatUnread(chat) {
+  // Exact where the inbox told us, boolean where it did not.
+  const last = state.lastSeen[chat.id] || 0;
+  if (!chat.last_message) return 0;
+  const fromInbox = state.inbox.filter(
+    (m) => m.chat_id === chat.id && m.id > last).length;
+  if (fromInbox) return fromInbox;
+  return chat.last_message.id > last ? 1 : 0;
 }
 
 function renderChatList() {
   const list = $("chatList");
+  const filter = ($("chatFilter").value || "").trim().toLowerCase();
   list.textContent = "";
+  $("chatCount").textContent = state.chats.length
+    ? `${state.chats.length} on this tailnet` : "";
   if (!state.chats.length) {
     const empty = document.createElement("div");
-    empty.className = "empty-list";
-    empty.textContent = "No chats yet. Create the first one with ＋";
+    empty.className = "placeholder";
+    empty.style.padding = "var(--space-6)";
+    const tick = document.createElement("span"); tick.className = "tick";
+    const h = document.createElement("div"); h.className = "h"; h.style.fontSize = "20px";
+    h.textContent = "Nothing yet";
+    const t = document.createElement("div"); t.className = "t"; t.style.fontSize = "13px";
+    t.textContent = "No chats exist on this tailnet. Found the first one, or wait for an agent to do it.";
+    empty.append(tick, h, t);
     list.appendChild(empty);
     return;
   }
   for (const chat of state.chats) {
-    const item = document.createElement("div");
-    item.className = "chat-item";
-    if (chat.id === state.current) item.classList.add("active");
-    const isNew = chat.last_message &&
-      chat.last_message.id > (state.lastSeen[chat.id] || 0) &&
-      chat.id !== state.current;
-    if (isNew) item.classList.add("ci-new");
+    if (filter && !chat.name.toLowerCase().includes(filter)) continue;
+    const unread = chat.id === state.current ? 0 : chatUnread(chat);
+    const item = document.createElement("button");
+    item.className = "chat-item" + (chat.id === state.current ? " on" : "");
 
-    const avatar = document.createElement("div");
-    avatar.className = "avatar";
-    paintAvatar(avatar, chat.name, chat.id);
+    item.appendChild(makeAvatar(chat.name, chat.id));
 
-    const bodyEl = document.createElement("div"); bodyEl.className = "ci-body";
+    const body = document.createElement("div"); body.className = "ci-body";
     const top = document.createElement("div"); top.className = "ci-top";
-    const name = document.createElement("div"); name.className = "ci-name";
+    const name = document.createElement("span"); name.className = "ci-name";
     name.textContent = chat.name;
-    const time = document.createElement("div"); time.className = "ci-time";
+    const time = document.createElement("span");
+    time.className = "ci-time" + (unread ? " hot" : "");
     if (chat.last_message_at) time.textContent = fmtSidebarTime(chat.last_message_at);
-    top.appendChild(name); top.appendChild(time);
+    top.append(name, time);
 
-    const bottom = document.createElement("div"); bottom.className = "ci-bottom";
-    const preview = document.createElement("div"); preview.className = "ci-preview";
+    const prev = document.createElement("div");
     if (chat.last_message) {
+      prev.className = "ci-prev";
       const sender = document.createElement("b");
       sender.textContent = chat.last_message.sender.name + ": ";
-      preview.appendChild(sender);
-      preview.appendChild(document.createTextNode(chat.last_message.text));
+      prev.append(sender, document.createTextNode(chat.last_message.text));
     } else {
-      preview.textContent = chat.description || "No messages yet";
+      prev.className = "ci-prev none";
+      prev.textContent = chat.description || "No messages yet";
     }
-    bottom.appendChild(preview);
-    if (isNew) {
-      const dot = document.createElement("div");
-      dot.className = "unread-dot";
-      bottom.appendChild(dot);
+
+    const meta = document.createElement("div"); meta.className = "ci-meta";
+    const counts = document.createElement("span"); counts.className = "ci-counts";
+    counts.textContent =
+      `${chat.participant_count} active · ` +
+      (chat.message_count ? `${chat.message_count} messages` : "no messages");
+    meta.appendChild(counts);
+    if (unread) {
+      const tag = document.createElement("span");
+      tag.className = "tag tag-accent";
+      tag.style.marginLeft = "auto";
+      tag.textContent = `${unread} new`;
+      meta.appendChild(tag);
     }
-    bodyEl.appendChild(top); bodyEl.appendChild(bottom);
-    item.appendChild(avatar); item.appendChild(bodyEl);
+
+    body.append(top, prev, meta);
+    item.appendChild(body);
     item.onclick = () => openChat(chat.id).catch((error) => {
       if (error.status === 404) { // deleted elsewhere, list was stale
         closeCurrentChat();
@@ -596,7 +978,7 @@ function renderChatList() {
 
 function createChatFlow() {
   if (!isParticipant()) {
-    toast("Observer mode: enable Participant in ⚙ Settings to create chats.");
+    toast("Observer mode: enable Participant in Settings to create chats.");
     return;
   }
   ensureRegistered().then(() => {
@@ -605,7 +987,7 @@ function createChatFlow() {
       text: "The name is unique across the system. You will follow the new chat automatically.",
       fields: [
         { id: "name", label: "Chat name", maxlength: 64 },
-        { id: "description", label: "Description (optional)", maxlength: 280 },
+        { id: "description", label: "Description — optional, 280 characters", maxlength: 280, placeholder: "What this chat is for" },
       ],
       submit: "Create",
       onSubmit: async (values) => {
@@ -616,151 +998,355 @@ function createChatFlow() {
         });
         toast(`Chat “${created.name}” created`);
         await loadChats();
+        setView("chats");
         openChat(created.chat_id);
       },
     });
   }).catch(() => {});
 }
 
-/* ------------------------------------------------------------ messages */
-async function openChat(chatId) {
-  state.current = chatId;
-  state.maxMsgId = 0;
-  state.mentions = new Set();
-  clearInterval(state.pollMsgs);
-  $("placeholder").hidden = true;
-  $("chatView").hidden = false;
-  $("partPanel").hidden = true;
-  $("sidebar").classList.add("chat-open");
-  $("backBtn").hidden = false;
-  $("messages").textContent = "";
-
-  const chat = state.chats.find((c) => c.id === chatId);
-  if (chat) {
-    $("chatName").textContent = chat.name;
-    paintAvatar($("chatAvatar"), chat.name, chat.id);
-  }
-  await loadParticipants(chatId);
-  const body = await api(`/chats/${chatId}/messages?limit=200`);
-  const ordered = body.messages.slice().reverse(); // DESC → oldest first
-  for (const message of ordered) appendMessage(message);
-  markSeen();
-  scrollBottom(true);
-  renderChatList();
-  startPollers();
-}
-
-async function pollNewMessages() {
-  if (state.current == null) return;
+/* ---------------------------------------------------------------- inbox */
+async function loadInbox() {
+  if (!state.me || !isParticipant()) { renderInboxObserver(); return; }
+  const params = new URLSearchParams({
+    participant_id: state.me.participant_id, limit: "100",
+  });
+  let body;
   try {
-    const body = await api(
-      `/chats/${state.current}/messages?after_id=${state.maxMsgId}&limit=200`);
-    if (!body.messages.length) return;
-    const nearBottom = isNearBottom();
-    for (const message of body.messages.slice().reverse()) appendMessage(message);
-    markSeen();
-    if (nearBottom) scrollBottom();
-    loadChats();
-    loadParticipants(state.current); // a new sender may have just joined
+    body = await api("/messages?" + params);
   } catch (error) {
-    if (error.status === 404) {
-      // The chat was deleted from another browser while we were reading it.
-      closeCurrentChat();
-      toast("This chat was deleted.", true);
-      loadChats().catch(() => {});
-      return;
+    if (error.code === "unknown_participant") {
+      await rebirth();
+      body = await api("/messages?" + new URLSearchParams({
+        participant_id: state.me.participant_id, limit: "100" }));
+    } else { throw error; }
+  }
+  // Snapshot the checkpoint BEFORE advancing it: the divider marks where
+  // the reader actually was.
+  state.inboxCheckpoint = Object.assign({}, state.lastSeen);
+  state.inbox = body.messages.slice().reverse(); // DESC → oldest first
+  renderInbox();
+  renderFocus();
+  renderCkpt();
+  // Reading the inbox advances the browser-local checkpoint (§3.1).
+  let advanced = false;
+  for (const m of state.inbox) {
+    if (m.id > (state.lastSeen[m.chat_id] || 0)) {
+      state.lastSeen[m.chat_id] = m.id;
+      advanced = true;
     }
-    /* transient: next poll retries */
+  }
+  if (advanced) saveJSON("aim_ui_lastseen", state.lastSeen);
+  renderChatList();
+}
+
+function inboxFiltered() {
+  const query = ($("inboxSearch").value || "").trim().toLowerCase();
+  return state.inbox.filter((m) => {
+    if (state.focus === "mentions" &&
+        !(m.mentions || []).includes(state.me && state.me.participant_id)) return false;
+    if (state.focus === "intros" && !m.is_introduction) return false;
+    if (state.focus === "mine" &&
+        !(state.me && m.sender.id === state.me.participant_id)) return false;
+    if (query && !m.text.toLowerCase().includes(query) &&
+        !m.sender.name.toLowerCase().includes(query)) return false;
+    return true;
+  });
+}
+
+const FOCUS_LABELS = {
+  all: "Everything new", mentions: "Mentions of you",
+  intros: "Introductions", mine: "Sent by you",
+};
+
+function renderInbox() {
+  const streamEl = $("inboxStream");
+  streamEl.textContent = "";
+  const items = inboxFiltered();
+  $("inboxTitle").textContent = FOCUS_LABELS[state.focus];
+  const chatsSpanned = new Set(items.map((m) => m.chat_id)).size;
+  const unread = state.inbox.filter(
+    (m) => m.id > (state.inboxCheckpoint[m.chat_id] || 0)).length;
+  $("inboxSub").textContent = state.inbox.length
+    ? `${items.length} of ${state.inbox.length} messages across ${chatsSpanned} chat${chatsSpanned === 1 ? "" : "s"}` +
+      ` · newest first · polling every ${Math.max(2, settings.pollSeconds || 5)}s`
+    : "nothing in the chats you follow yet";
+  $("inboxCount").textContent = unread ? ` ${unread}` : "";
+
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "placeholder";
+    const tick = document.createElement("span"); tick.className = "tick";
+    const h = document.createElement("div"); h.className = "h"; h.textContent = "Nothing here";
+    const t = document.createElement("div"); t.className = "t";
+    t.textContent = state.inbox.length
+      ? "No message matches this focus. The rest of the inbox is one click away."
+      : "Follow a chat and everything new lands here, across all of them.";
+    empty.append(tick, h, t);
+    streamEl.appendChild(empty);
+    return;
+  }
+
+  // Render newest first: day separators walk backwards, and the checkpoint
+  // line sits where the reader last was.
+  const desc = items.slice().reverse();
+  let day = null, ckptDrawn = false;
+  const newerCount = desc.filter(
+    (m) => m.id > (state.inboxCheckpoint[m.chat_id] || 0)).length;
+  for (const message of desc) {
+    const isNew = message.id > (state.inboxCheckpoint[message.chat_id] || 0);
+    if (!isNew && !ckptDrawn && newerCount > 0) {
+      const sep = document.createElement("div");
+      sep.className = "ckpt-sep";
+      const lbl = document.createElement("span"); lbl.className = "lbl";
+      lbl.textContent = `Your checkpoint · ${newerCount} newer above`;
+      const rule = document.createElement("span"); rule.className = "frule-accent";
+      sep.append(lbl, rule);
+      streamEl.appendChild(sep);
+      ckptDrawn = true;
+    }
+    const d = fmtDay(message.created_at);
+    if (d !== day) {
+      const sep = document.createElement("div");
+      sep.className = "day-sep";
+      const lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = d;
+      const rule = document.createElement("span"); rule.className = "frule";
+      sep.append(lbl, rule);
+      streamEl.appendChild(sep);
+      day = d;
+    }
+    streamEl.appendChild(renderMessageRow(message, { chatTag: true }));
   }
 }
 
-let lastDay = null, lastSender = null;
+function renderInboxObserver() {
+  const streamEl = $("inboxStream");
+  streamEl.textContent = "";
+  $("inboxTitle").textContent = "Inbox";
+  $("inboxSub").textContent = "the global inbox spans the chats your participant follows";
+  $("inboxCount").textContent = "";
+  const bar = document.createElement("div");
+  bar.className = "observer-note";
+  bar.style.marginTop = "var(--space-4)";
+  const t = document.createElement("div"); t.style.flex = "1";
+  const t1 = document.createElement("div"); t1.className = "t1";
+  t1.textContent = "Observer mode — the inbox needs an identity.";
+  const t2 = document.createElement("div"); t2.className = "t2";
+  t2.textContent = "It collects everything new across the chats YOU follow, and following is a participant thing. Browse Chats freely instead.";
+  t.append(t1, t2);
+  const btn = document.createElement("button");
+  btn.className = "btn btn-primary"; btn.style.flex = "none";
+  btn.textContent = "Become a participant";
+  btn.onclick = becomeParticipant;
+  bar.append(t, btn);
+  streamEl.appendChild(bar);
+  renderFocus();
+  renderCkpt();
+}
+
+function renderFocus() {
+  const list = $("focusList");
+  list.textContent = "";
+  const me = state.me && state.me.participant_id;
+  const counts = {
+    all: state.inbox.filter((m) => m.id > (state.inboxCheckpoint[m.chat_id] || 0)).length,
+    mentions: state.inbox.filter((m) => (m.mentions || []).includes(me)).length,
+    intros: state.inbox.filter((m) => m.is_introduction).length,
+    mine: state.inbox.filter((m) => me && m.sender.id === me).length,
+  };
+  for (const key of Object.keys(FOCUS_LABELS)) {
+    const item = document.createElement("button");
+    item.className = "focus-item" + (state.focus === key ? " on" : "");
+    const lbl = document.createElement("span"); lbl.className = "lbl";
+    lbl.textContent = FOCUS_LABELS[key];
+    const n = document.createElement("span");
+    if (key === "mentions" && counts.mentions && state.focus !== key) {
+      n.className = "tag tag-accent"; n.textContent = counts.mentions;
+    } else {
+      n.className = "n"; n.textContent = counts[key] || "—";
+    }
+    item.append(lbl, n);
+    item.onclick = () => { state.focus = key; renderFocus(); renderInbox(); };
+    list.appendChild(item);
+  }
+}
+
+function renderScope() {
+  const list = $("scopeList");
+  list.textContent = "";
+  const followed = state.chats.filter((c) => c.following !== false);
+  $("scopeHead").textContent = state.me && isParticipant()
+    ? `Scope · ${followed.length} followed` : "Scope · all chats";
+  for (const chat of followed.slice(0, 12)) {
+    const unread = chatUnread(chat);
+    const item = document.createElement("div");
+    item.className = "scope-item" + (unread ? " hot" : "");
+    const dot = document.createElement("span"); dot.className = "dot";
+    const lbl = document.createElement("span"); lbl.className = "lbl";
+    lbl.textContent = chat.name;
+    const n = document.createElement("span"); n.className = "n";
+    n.textContent = unread || "—";
+    item.append(dot, lbl, n);
+    list.appendChild(item);
+  }
+}
+
+function renderCkpt() {
+  const ids = Object.values(state.lastSeen).filter(Boolean);
+  $("ckptText").textContent = ids.length
+    ? "Global marker at message " : "No messages read yet";
+  if (ids.length) {
+    const mono = document.createElement("span");
+    mono.style.fontFamily = "var(--font-mono)";
+    mono.textContent = `#${Math.max(...ids)}`;
+    $("ckptText").appendChild(mono);
+  }
+}
+
+/* ------------------------------------------------------------- presence */
+async function loadPresence() {
+  if (!state.chats.length) { $("presenceList").textContent = ""; return; }
+  const scope = (state.me && isParticipant())
+    ? state.chats.filter((c) => c.following !== false)
+    : state.chats;
+  const results = await Promise.all(scope.slice(0, 8).map((chat) =>
+    api(`/chats/${chat.id}/participants`).catch(() => null)));
+  const byId = new Map();
+  for (const body of results) {
+    if (!body) continue;
+    for (const p of body.participants) {
+      if (!p.active) continue;
+      const known = byId.get(p.id);
+      if (!known || (p.last_seen_at || "") > (known.last_seen_at || "")) byId.set(p.id, p);
+    }
+  }
+  state.presence = [...byId.values()].sort((a, b) => {
+    const dormancy = (a.presence === "dormant") - (b.presence === "dormant");
+    return dormancy !== 0 ? dormancy : a.id - b.id;
+  });
+  renderPresence();
+}
+
+function renderPresence() {
+  const list = $("presenceList");
+  list.textContent = "";
+  for (const p of state.presence.slice(0, 12)) {
+    list.appendChild(participantRow(p, { compact: true }));
+  }
+}
+
+function participantRow(p, { compact } = {}) {
+  const dormant = p.presence === "dormant";
+  const row = document.createElement("div");
+  row.className = "p-row" + (dormant ? " dim" : "");
+  row.appendChild(makeAvatar(p.name, p.id, dormant, compact));
+  const body = document.createElement("div"); body.className = "p-body";
+  const name = document.createElement("div"); name.className = "p-name";
+  name.textContent = p.name;
+  if (state.me && p.id === state.me.participant_id) {
+    const you = document.createElement("span"); you.className = "you";
+    you.textContent = " (you)";
+    name.appendChild(you);
+  }
+  const prov = document.createElement("div"); prov.className = "p-prov";
+  prov.textContent = dormant && p.last_seen_at
+    ? `dormant · last seen ${fmtDay(p.last_seen_at)}`
+    : provenance(p);
+  body.append(name, prov);
+  row.appendChild(body);
+  if (dormant) {
+    const clock = document.createElement("span"); clock.className = "p-clock";
+    clock.title = "Dormant: has not called the server in 24h+";
+    clock.innerHTML = '<svg width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"/></svg>';
+    row.appendChild(clock);
+  } else {
+    const dot = document.createElement("span"); dot.className = "p-dot";
+    dot.title = "active";
+    row.appendChild(dot);
+  }
+  return row;
+}
+
+/* ------------------------------------------------------------ messages */
+function renderMessageRow(message, { chatTag } = {}) {
+  const row = document.createElement("div");
+  row.className = "mrow";
+  row.appendChild(makeAvatar(message.sender.name, message.sender.id));
+
+  const body = document.createElement("div"); body.className = "mbody";
+  const head = document.createElement("div"); head.className = "mhead";
+  const name = document.createElement("span"); name.className = "mname";
+  name.textContent = message.sender.name;
+  const prov = document.createElement("span"); prov.className = "mprov";
+  prov.textContent = provenance(message.sender);
+  head.append(name, prov);
+  if (chatTag && message.chat_name) {
+    const tag = document.createElement("span"); tag.className = "tag tag-chat";
+    tag.textContent = message.chat_name;
+    head.appendChild(tag);
+  }
+  const time = document.createElement("span"); time.className = "mtime";
+  time.textContent = fmtTime(message.created_at);
+  time.title = message.created_at;
+  head.appendChild(time);
+  body.appendChild(head);
+
+  if (message.mentions && message.mentions.length) {
+    const tags = document.createElement("div"); tags.className = "mtags";
+    for (const pid of message.mentions) {
+      const chip = document.createElement("span"); chip.className = "tag tag-accent";
+      const who = state.participants[pid];
+      chip.textContent = "@" + (who ? who.name : "") + ` #${pid}`;
+      tags.appendChild(chip);
+    }
+    body.appendChild(tags);
+  }
+
+  if (message.is_introduction) {
+    const card = document.createElement("div"); card.className = "intro-card";
+    const k = document.createElement("div"); k.className = "k"; k.textContent = "Introduction";
+    const t = document.createElement("div"); t.className = "t"; t.textContent = message.text;
+    card.append(k, t);
+    if (message.intro_payload) {
+      const rows = document.createElement("div"); rows.className = "intro-rows";
+      const labels = { who: "who", works_for: "works for", goal: "goal", seeking: "seeking" };
+      for (const [key, label] of Object.entries(labels)) {
+        if (!message.intro_payload[key]) continue;
+        const dt = document.createElement("span"); dt.className = "k2"; dt.textContent = label;
+        const dd = document.createElement("span"); dd.textContent = message.intro_payload[key];
+        rows.append(dt, dd);
+      }
+      card.appendChild(rows);
+    }
+    body.appendChild(card);
+  } else {
+    const text = document.createElement("div");
+    const mine = state.me && message.sender.id === state.me.participant_id;
+    text.className = "mtext" + (mine ? " mine" : "");
+    text.textContent = message.text;
+    body.appendChild(text);
+  }
+
+  row.appendChild(body);
+  return row;
+}
+
+let threadDay = null;
 function appendMessage(message) {
   const container = $("messages");
   if (message.id <= state.maxMsgId) return;
   state.maxMsgId = Math.max(state.maxMsgId, message.id);
-
   const day = fmtDay(message.created_at);
-  if (day !== lastDay || container.childElementCount === 0) {
+  if (day !== threadDay || container.childElementCount === 0) {
     const sep = document.createElement("div");
     sep.className = "day-sep";
-    const label = document.createElement("span");
-    label.textContent = day;
-    sep.appendChild(label);
+    const lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = day;
+    const rule = document.createElement("span"); rule.className = "frule";
+    sep.append(lbl, rule);
     container.appendChild(sep);
-    lastDay = day; lastSender = null;
+    threadDay = day;
   }
-
-  const mine = state.me && message.sender.id === state.me.participant_id;
-  const wrap = document.createElement("div");
-  wrap.className = "msg" + (mine ? " mine" : "") +
-    (message.is_introduction ? " intro" : "");
-  if (message.sender.id !== lastSender) wrap.classList.add("first");
-  lastSender = message.sender.id;
-
-  const bubble = document.createElement("div");
-  bubble.className = "bubble";
-
-  if (wrap.classList.contains("first") && !mine) {
-    const sender = document.createElement("div");
-    sender.className = "b-sender";
-    sender.style.color = `hsl(${hue(message.sender.id)}, 65%, 62%)`;
-    sender.textContent = `${message.sender.name} `;
-    const meta = document.createElement("small");
-    meta.textContent =
-      `#${message.sender.id} · ${message.sender.agent_type}/` +
-      `${message.sender.client_type} · ${message.sender.machine}`;
-    sender.appendChild(meta);
-    bubble.appendChild(sender);
-  }
-
-  if (message.is_introduction) {
-    const tag = document.createElement("div");
-    tag.className = "intro-tag";
-    tag.textContent = "INTRODUCTION";
-    bubble.appendChild(tag);
-  }
-
-  if (message.mentions && message.mentions.length) {
-    const chips = document.createElement("div");
-    chips.className = "mention-chips";
-    for (const pid of message.mentions) {
-      const chip = document.createElement("span");
-      chip.className = "chip";
-      const who = state.participants[pid];
-      chip.textContent = "@" + (who ? who.name : `#${pid}`);
-      chips.appendChild(chip);
-    }
-    bubble.appendChild(chips);
-  }
-
-  const text = document.createElement("div");
-  text.className = "b-text";
-  text.textContent = message.text;
-  bubble.appendChild(text);
-
-  if (message.is_introduction && message.intro_payload) {
-    const rows = document.createElement("div");
-    rows.className = "intro-rows";
-    const labels = { who: "who", works_for: "works for", goal: "goal", seeking: "seeking" };
-    for (const [key, label] of Object.entries(labels)) {
-      if (!message.intro_payload[key]) continue;
-      const row = document.createElement("div");
-      const dt = document.createElement("dt"); dt.textContent = label + ":";
-      const dd = document.createElement("dd"); dd.textContent = message.intro_payload[key];
-      row.appendChild(dt); row.appendChild(dd);
-      rows.appendChild(row);
-    }
-    bubble.appendChild(rows);
-  }
-
-  const time = document.createElement("div");
-  time.className = "b-time";
-  time.textContent = fmtTime(message.created_at);
-  bubble.appendChild(time);
-
-  wrap.appendChild(bubble);
-  container.appendChild(wrap);
+  container.appendChild(renderMessageRow(message));
 }
 
 function isNearBottom() {
@@ -776,6 +1362,63 @@ function markSeen() {
   state.lastSeen[state.current] = Math.max(
     state.lastSeen[state.current] || 0, state.maxMsgId);
   saveJSON("aim_ui_lastseen", state.lastSeen);
+  renderCkpt();
+}
+
+async function openChat(chatId) {
+  state.current = chatId;
+  state.maxMsgId = 0;
+  state.mentions = new Set();
+  threadDay = null;
+  $("placeholder").hidden = true;
+  $("thread").hidden = false;
+  $("chatsView").classList.add("thread-open");
+  $("messages").textContent = "";
+
+  const chat = state.chats.find((c) => c.id === chatId);
+  $("threadName").textContent = chat ? chat.name : "";
+  $("threadId").textContent = `chat #${chatId}`;
+  await loadParticipants(chatId);
+  const body = await api(`/chats/${chatId}/messages?limit=200`);
+  const ordered = body.messages.slice().reverse(); // DESC → oldest first
+  for (const message of ordered) appendMessage(message);
+  markSeen();
+  scrollBottom(true);
+  renderChatList();
+  startPollers();
+}
+
+function closeCurrentChat() {
+  state.current = null;
+  state.maxMsgId = 0;
+  $("thread").hidden = true;
+  $("placeholder").hidden = false;
+  $("partRail").hidden = true;
+  $("chatsView").classList.remove("thread-open");
+}
+
+async function pollNewMessages() {
+  if (state.current == null) return;
+  try {
+    const body = await api(
+      `/chats/${state.current}/messages?after_id=${state.maxMsgId}&limit=200`);
+    if (!body.messages.length) return;
+    const nearBottom = isNearBottom();
+    for (const message of body.messages.slice().reverse()) appendMessage(message);
+    markSeen();
+    if (nearBottom) scrollBottom();
+    loadChats().catch(() => {});
+    loadParticipants(state.current).catch(() => {}); // a new sender may have joined
+  } catch (error) {
+    if (error.status === 404) {
+      // The chat was deleted from another browser while we were reading it.
+      closeCurrentChat();
+      toast("This chat was deleted.", true);
+      loadChats().catch(() => {});
+      return;
+    }
+    /* transient: next poll retries */
+  }
 }
 
 /* --------------------------------------------------------- participants */
@@ -783,15 +1426,18 @@ async function loadParticipants(chatId) {
   const body = await api(`/chats/${chatId}/participants`);
   state.members = body.participants;
   state.participants = {};
-  for (const participant of body.participants) {
-    state.participants[participant.id] = participant;
-  }
+  for (const p of body.participants) state.participants[p.id] = p;
+
   const active = body.participants.filter((p) => p.active);
-  $("chatMeta").textContent = active.length
-    ? "with " + active.map(
-        (p) => p.name + (p.presence === "dormant" ? " 💤" : "")
-      ).join(", ")
-    : "no participants yet";
+  const dormant = active.filter((p) => p.presence === "dormant");
+  const left = body.participants.filter((p) => !p.active);
+  const bits = [];
+  const lively = active.filter((p) => p.presence !== "dormant").map((p) => p.name);
+  if (lively.length) bits.push(lively.join(", ") + " active");
+  if (dormant.length) bits.push(dormant.map((p) => p.name).join(", ") + " dormant");
+  if (left.length) bits.push(left.map((p) => p.name).join(", ") + " left");
+  $("threadMeta").textContent = bits.join(" · ") || "no participants yet";
+
   const meActive = state.me && active.some((p) => p.id === state.me.participant_id);
   $("joinBtn").hidden = !!meActive || !isParticipant();
   $("leaveBtn").hidden = !meActive || !isParticipant();
@@ -799,7 +1445,43 @@ async function loadParticipants(chatId) {
   // the opposite of not touching.
   $("deleteBtn").hidden = !isParticipant();
   renderMentionBar(active);
-  renderParticipants(body.participants);
+  renderParticipantsRail(body.participants);
+}
+
+function renderParticipantsRail(participants) {
+  const list = $("partList");
+  list.textContent = "";
+  const active = participants.filter((p) => p.active);
+  const left = participants.filter((p) => !p.active);
+  $("partCount").textContent =
+    `${participants.length} · ${active.length} active`;
+  for (const p of active) list.appendChild(participantRow(p));
+  if (left.length) {
+    const pad = document.createElement("div");
+    pad.style.padding = "var(--space-4) var(--space-6) 0";
+    const rule = document.createElement("div"); rule.className = "frule";
+    pad.appendChild(rule);
+    list.appendChild(pad);
+    const h = document.createElement("div");
+    h.className = "rail-h";
+    h.style.paddingTop = "var(--space-3)";
+    h.textContent = "Left the chat";
+    list.appendChild(h);
+    for (const p of left) {
+      const row = document.createElement("div");
+      row.className = "p-row gone";
+      row.appendChild(makeAvatar(p.name, p.id, true));
+      const body = document.createElement("div"); body.className = "p-body";
+      const name = document.createElement("div"); name.className = "p-name";
+      name.textContent = p.name;
+      const prov = document.createElement("div"); prov.className = "p-prov";
+      prov.textContent =
+        `#${p.id} · left ${p.left_at ? fmtDay(p.left_at) : ""} · ID reserved`;
+      body.append(name, prov);
+      row.appendChild(body);
+      list.appendChild(row);
+    }
+  }
 }
 
 function renderMentionBar(active) {
@@ -807,86 +1489,52 @@ function renderMentionBar(active) {
   bar.textContent = "";
   const others = active.filter((p) => !state.me || p.id !== state.me.participant_id);
   if (!others.length) return;
-  // Mentions are IDs, never names — and names collide (design §5.2): show
-  // enough context to tell five "Nova"s apart, and push dormant
-  // participants to the end so the easiest trap (mentioning someone who
-  // will never come back) stays out of the way.
+  const k = document.createElement("span"); k.className = "k";
+  k.textContent = "Mention by ID";
+  bar.appendChild(k);
+  // Mentions are IDs, never names — and names collide (§5.2): show enough
+  // context to tell five "Nova"s apart, dormant pushed to the end.
   const sorted = others.slice().sort((a, b) => {
     const dormancy = (a.presence === "dormant") - (b.presence === "dormant");
     return dormancy !== 0 ? dormancy : a.id - b.id;
   });
   // Dormant hidden by default (§10.3): mentioning someone who will never
-  // come back is the easiest trap. A switch shows them, at the end.
+  // come back is the easiest trap.
   const dormantCount = sorted.filter((p) => p.presence === "dormant").length;
   const shown = settings.showDormant
-    ? sorted
-    : sorted.filter((p) => p.presence !== "dormant");
-  for (const participant of shown) {
-    const dormant = participant.presence === "dormant";
-    const toggle = document.createElement("button");
-    toggle.className = "m-toggle" + (state.mentions.has(participant.id) ? " on" : "");
-    toggle.textContent =
-      `@${participant.name} #${participant.id} · ` +
-      `${participant.client_type}@${participant.machine}` +
-      (dormant ? " 💤" : "");
-    toggle.title = dormant
+    ? sorted : sorted.filter((p) => p.presence !== "dormant");
+  for (const p of shown) {
+    const dormant = p.presence === "dormant";
+    const on = state.mentions.has(p.id);
+    const chip = document.createElement("button");
+    chip.className = "btn m-chip " + (on ? "btn-primary on" : "btn-secondary") +
+      (dormant ? " dormant" : "");
+    chip.textContent = `@${p.name} `;
+    const id = document.createElement("span"); id.className = "id";
+    id.textContent = `#${p.id} ${p.client_type}@${p.machine}` + (dormant ? " · dormant" : "");
+    chip.appendChild(id);
+    chip.title = dormant
       ? "Dormant: has not called the server recently. Mentioning them may go unread."
       : "Mention (structured, by ID — not text parsing)";
-    if (dormant) toggle.style.opacity = ".55";
-    toggle.onclick = () => {
-      if (state.mentions.has(participant.id)) state.mentions.delete(participant.id);
-      else state.mentions.add(participant.id);
-      toggle.classList.toggle("on");
+    chip.onclick = () => {
+      if (state.mentions.has(p.id)) state.mentions.delete(p.id);
+      else state.mentions.add(p.id);
+      renderMentionBar(active);
     };
-    bar.appendChild(toggle);
+    bar.appendChild(chip);
   }
   if (dormantCount) {
     const switcher = document.createElement("button");
-    switcher.className = "m-toggle";
-    switcher.style.opacity = ".7";
+    switcher.className = "btn btn-ghost m-chip";
+    switcher.style.color = "var(--color-neutral-500)";
     switcher.textContent = settings.showDormant
-      ? "hide 💤"
-      : `💤 ${dormantCount} dormant hidden`;
-    switcher.title = "Dormant participants have not called the server recently.";
+      ? "hide dormant" : `${dormantCount} dormant hidden`;
     switcher.onclick = () => {
       settings.showDormant = !settings.showDormant;
       saveSettings();
       renderMentionBar(active);
     };
     bar.appendChild(switcher);
-  }
-}
-
-function renderParticipants(participants) {
-  const list = $("partList");
-  list.textContent = "";
-  for (const participant of participants) {
-    const item = document.createElement("div");
-    item.className = "part-item" + (participant.active ? "" : " left");
-    const avatar = document.createElement("div");
-    avatar.className = "avatar";
-    paintAvatar(avatar, participant.name, participant.id);
-    const bodyEl = document.createElement("div");
-    const name = document.createElement("div");
-    name.className = "pi-name";
-    name.textContent = participant.name +
-      (state.me && participant.id === state.me.participant_id ? " (you)" : "");
-    const sub = document.createElement("div");
-    sub.className = "pi-sub";
-    let presence = "";
-    if (participant.active) {
-      presence = participant.presence === "dormant"
-        ? " · 💤 dormant" + (participant.last_seen_at
-            ? ` (last seen ${fmtDay(participant.last_seen_at)})` : "")
-        : " · ● active now";
-    }
-    sub.textContent =
-      `#${participant.id} · ${participant.agent_type}/${participant.client_type}` +
-      ` · ${participant.machine}` +
-      (participant.active ? presence : ` · left ${fmtDay(participant.left_at)}`);
-    bodyEl.appendChild(name); bodyEl.appendChild(sub);
-    item.appendChild(avatar); item.appendChild(bodyEl);
-    list.appendChild(item);
   }
 }
 
@@ -906,33 +1554,24 @@ async function leaveCurrent() {
   await loadParticipants(state.current);
 }
 
-function closeCurrentChat() {
-  state.current = null;
-  state.maxMsgId = 0;
-  clearInterval(state.pollMsgs);
-  $("chatView").hidden = true;
-  $("placeholder").hidden = false;
-  $("partPanel").hidden = true;
-  $("sidebar").classList.remove("chat-open");
-  $("backBtn").hidden = true;
-}
-
 function deleteCurrentFlow() {
   if (!isParticipant()) {
-    toast("Observer mode: enable Participant in ⚙ Settings to delete chats.");
+    toast("Observer mode: enable Participant in Settings to delete chats.");
     return;
   }
   if (state.current == null) return;
   const chat = state.chats.find((c) => c.id === state.current);
-  const chatName = chat ? chat.name : $("chatName").textContent;
+  const chatName = chat ? chat.name : $("threadName").textContent;
+  const messageCount = chat && chat.message_count
+    ? `all ${chat.message_count} messages` : "all its messages";
   ensureRegistered().then(() => {
     modal({
-      title: "Delete this chat?",
-      text: `“${chatName}” will be deleted permanently for everyone, ` +
-        "with all its messages and memberships. There is no undo. " +
-        "Retype the chat name to confirm.",
-      fields: [{ id: "confirm", label: "Chat name", maxlength: 64 }],
+      title: `Delete “${chatName}”?`,
+      text: `Deleted permanently for everyone, with ${messageCount} and ` +
+        "every membership. There is no undo. The name becomes available again.",
+      fields: [{ id: "confirm", label: "Retype the chat name to confirm", placeholder: chatName, maxlength: 64 }],
       submit: "Delete forever",
+      danger: true,
       onSubmit: async (values) => {
         const deletedId = state.current;
         const result = await apiDelete(`/chats/${deletedId}`, {
@@ -942,8 +1581,7 @@ function deleteCurrentFlow() {
         delete state.lastSeen[deletedId];
         saveJSON("aim_ui_lastseen", state.lastSeen);
         closeCurrentChat();
-        toast(`Chat “${result.name}” deleted ` +
-          `(${result.deleted_messages} messages gone).`);
+        toast(`Chat “${result.name}” deleted — ${result.deleted_messages} messages gone`);
         await loadChats();
       },
     });
@@ -951,10 +1589,7 @@ function deleteCurrentFlow() {
 }
 
 async function sendMessage() {
-  if (!isParticipant()) {
-    toast("Observer mode: enable Participant in ⚙ Settings to write.");
-    return;
-  }
+  if (!isParticipant()) return;
   const input = $("input");
   const text = input.value.trim();
   if (!text || state.current == null) return;
@@ -975,12 +1610,8 @@ async function sendMessage() {
         await post(`/chats/${state.current}/messages`, payload);
         toast("You joined the chat with your first message.");
       } else if (error.code === "unknown_participant") {
-        // Wipe-safe (§4.3): the server no longer knows this identity.
-        // Clear the cached one and re-register with the same per-browser
-        // session key — rebirth, not a retry loop.
-        localStorage.removeItem("aim_ui_identity");
-        state.me = null;
-        await ensureRegistered();
+        // Wipe-safe (§4.3): rebirth, not a retry loop.
+        await rebirth();
         payload.sender_id = state.me.participant_id;
         await post(`/chats/${state.current}/follow`,
           { participant_id: state.me.participant_id });
@@ -990,6 +1621,7 @@ async function sendMessage() {
       } else { throw error; }
     }
     input.value = "";
+    input.style.height = "";
     state.mentions = new Set();
     await pollNewMessages();
     await loadParticipants(state.current);
@@ -1002,85 +1634,105 @@ async function sendMessage() {
   }
 }
 
+function becomeParticipant() {
+  settings.mode = "participant";
+  saveSettings();
+  applyMode();
+  ensureRegistered().catch(() => {
+    settings.mode = "observer";
+    saveSettings();
+    applyMode();
+  });
+}
+
 /* ------------------------------------------------------------- settings */
 function openSettings() {
   const overlay = $("overlay");
   overlay.textContent = "";
   const box = document.createElement("div");
-  box.className = "modal";
-  const title = document.createElement("h2");
-  title.textContent = "Settings";
-  const intro = document.createElement("p");
-  intro.textContent =
-    "Stored in this browser only (localStorage): the UI keeps no state on " +
-    "the server.";
+  box.className = "dialog";
+  const title = document.createElement("div");
+  title.className = "dialog-title"; title.textContent = "Settings";
+  const intro = document.createElement("div");
+  intro.className = "dialog-body";
+  intro.textContent = "Stored in this browser only. The UI keeps no state on the server.";
   box.append(title, intro);
 
-  const modeLabel = document.createElement("label");
-  modeLabel.textContent = "Mode";
-  const modeSelect = document.createElement("select");
-  for (const [value, text] of [
+  // mode
+  const modeField = document.createElement("div"); modeField.className = "field";
+  const modeLabel = document.createElement("label"); modeLabel.textContent = "Mode";
+  const seg = document.createElement("div"); seg.className = "seg"; seg.style.width = "100%";
+  let mode = settings.mode;
+  const opts = {};
+  for (const [value, label] of [
     ["observer", "Observer — read everything, touch nothing"],
-    ["participant", "Participant — write as yourself"],
+    ["participant", "Participant"],
   ]) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = text;
-    option.selected = settings.mode === value;
-    modeSelect.appendChild(option);
+    const opt = document.createElement("button");
+    opt.className = "seg-opt"; opt.style.flex = "1"; opt.style.justifyContent = "center";
+    opt.textContent = label;
+    opt.onclick = () => {
+      mode = value;
+      for (const [v, el] of Object.entries(opts)) el.classList.toggle("on", v === mode);
+    };
+    opts[value] = opt;
+    seg.appendChild(opt);
   }
+  opts[mode].classList.add("on");
+  modeField.append(modeLabel, seg);
+  box.appendChild(modeField);
 
-  const nameLabel = document.createElement("label");
-  const nameInput = document.createElement("input");
+  // identity
+  const idField = document.createElement("div"); idField.className = "field";
+  const idLabel = document.createElement("label");
+  const idInput = document.createElement("input");
+  idInput.className = "input";
   if (state.me) {
-    nameLabel.textContent =
-      `Identity: ${state.me.name} (participant #${state.me.participant_id})`;
-    nameInput.value = state.me.name;
-    nameInput.disabled = true;
+    idLabel.textContent = "Identity — assigned by the server";
+    idInput.value = `${state.me.name} · participant #${state.me.participant_id}`;
+    idInput.disabled = true;
   } else {
-    nameLabel.textContent = "Display name (used when you register)";
-    nameInput.value = settings.displayName || "";
+    idLabel.textContent = "Display name (used when you register)";
+    idInput.value = settings.displayName || "";
   }
+  idField.append(idLabel, idInput);
+  box.appendChild(idField);
 
+  // polling
+  const pollField = document.createElement("div"); pollField.className = "field";
   const pollLabel = document.createElement("label");
-  pollLabel.textContent = "Polling interval in seconds (min 2; paused while the tab is in background)";
+  pollLabel.textContent = "Polling interval — seconds, minimum 2, paused in background";
   const pollInput = document.createElement("input");
-  pollInput.type = "number";
-  pollInput.min = "2";
-  pollInput.value = settings.pollSeconds;
+  pollInput.className = "input"; pollInput.type = "number";
+  pollInput.min = "2"; pollInput.value = settings.pollSeconds || 5;
+  pollField.append(pollLabel, pollInput);
+  box.appendChild(pollField);
 
-  const dormantLabel = document.createElement("label");
-  dormantLabel.className = "check";
-  const dormantCheck = document.createElement("input");
-  dormantCheck.type = "checkbox";
-  dormantCheck.checked = settings.showDormant;
-  dormantLabel.appendChild(dormantCheck);
-  dormantLabel.appendChild(document.createTextNode(
-    "Show dormant participants in the mention picker"));
+  // dormant
+  const check = document.createElement("label"); check.className = "check";
+  const checkInput = document.createElement("input"); checkInput.type = "checkbox";
+  checkInput.checked = !!settings.showDormant;
+  const dot = document.createElement("span"); dot.className = "dot";
+  check.append(checkInput, dot,
+    document.createTextNode(" Show dormant participants in the mention picker"));
+  box.appendChild(check);
 
-  box.append(modeLabel, modeSelect, nameLabel, nameInput,
-             pollLabel, pollInput, dormantLabel);
-
-  const actions = document.createElement("div");
-  actions.className = "modal-actions";
+  const actions = document.createElement("div"); actions.className = "dialog-actions";
   const cancel = document.createElement("button");
-  cancel.className = "btn ghost";
-  cancel.textContent = "Cancel";
-  const save = document.createElement("button");
-  save.className = "btn primary";
-  save.textContent = "Save";
-  actions.append(cancel, save);
+  cancel.className = "btn btn-secondary"; cancel.textContent = "Cancel";
+  const ok = document.createElement("button");
+  ok.className = "btn btn-primary"; ok.textContent = "Save";
+  actions.append(cancel, ok);
   box.appendChild(actions);
-  overlay.appendChild(box);
-  overlay.hidden = false;
+  overlay.appendChild(box); overlay.hidden = false;
 
   const close = () => { overlay.hidden = true; overlay.textContent = ""; };
   cancel.onclick = close;
-  save.onclick = () => {
-    settings.mode = modeSelect.value;
-    if (!nameInput.disabled) settings.displayName = nameInput.value.trim();
+  ok.onclick = () => {
+    settings.mode = mode;
+    if (!state.me) settings.displayName = idInput.value.trim();
     settings.pollSeconds = Math.max(2, parseInt(pollInput.value, 10) || 5);
-    settings.showDormant = dormantCheck.checked;
+    settings.showDormant = checkInput.checked;
     saveSettings();
     close();
     applyMode();
@@ -1089,33 +1741,59 @@ function openSettings() {
   };
 }
 
+/* ----------------------------------------------------------- view/mode */
+function setView(view) {
+  state.view = view;
+  $("inboxView").hidden = view !== "inbox";
+  $("chatsView").hidden = view !== "chats";
+  for (const [id, on] of [
+    ["segInbox", view === "inbox"], ["segChats", view === "chats"],
+    ["segInboxM", view === "inbox"], ["segChatsM", view === "chats"],
+  ]) $(id).classList.toggle("on", on);
+  if (view === "inbox") {
+    loadInbox().catch((e) => toast(e.message, true));
+    loadPresence().catch(() => {});
+  }
+  startPollers();
+}
+
 function applyMode() {
   const observer = !isParticipant();
-  $("input").disabled = observer;
-  $("sendBtn").disabled = observer;
-  $("input").placeholder = observer
-    ? "Observer mode: you read without touching anything. Enable Participant in ⚙ Settings to write."
+  $("segObserver").classList.toggle("on", observer);
+  $("segParticipant").classList.toggle("on", !observer);
+  $("segParticipant").textContent =
+    state.me && !observer ? `Participant #${state.me.participant_id}` : "Participant";
+  $("participantComposer").hidden = observer;
+  $("observerBar").hidden = !observer;
+  $("input").placeholder = state.me
+    ? `Write as yourself — ${state.me.name}, participant #${state.me.participant_id}`
     : "Write as yourself — you'll join as a human participant";
   loadHealth();
   loadChats().catch(() => {});
+  if (state.view === "inbox") {
+    loadInbox().catch(() => {});
+    loadPresence().catch(() => {});
+  }
   if (state.current != null) loadParticipants(state.current).catch(() => {});
 }
 
 /* ------------------------------------------------------------- pollers */
 function stopPollers() {
   clearInterval(state.pollChats);
-  clearInterval(state.pollMsgs);
+  clearInterval(state.pollView);
 }
-
 function startPollers() {
   stopPollers();
   state.pollChats = setInterval(() => {
     loadHealth();
     loadChats().catch(() => {});
   }, pollMs());
-  if (state.current != null) {
-    state.pollMsgs = setInterval(pollNewMessages, pollMs());
-  }
+  state.pollView = setInterval(() => {
+    if (state.view === "inbox") {
+      loadInbox().catch(() => {});
+      loadPresence().catch(() => {});
+    } else if (state.current != null) pollNewMessages();
+  }, pollMs());
 }
 
 // Pull-only server (§1): polling is the cost of simplicity — pause it
@@ -1126,35 +1804,54 @@ document.addEventListener("visibilitychange", () => {
   } else {
     loadHealth();
     loadChats().catch(() => {});
-    if (state.current != null) pollNewMessages();
+    if (state.view === "inbox") loadInbox().catch(() => {});
+    else if (state.current != null) pollNewMessages();
     startPollers();
   }
 });
 
 /* --------------------------------------------------------------- wiring */
-$("settingsBtn").onclick = openSettings;
-$("newChatBtn").onclick = createChatFlow;
-$("refreshBtn").onclick = () => { loadHealth(); loadChats(); };
-$("backBtn").onclick = () => {
-  $("sidebar").classList.remove("chat-open");
-  $("backBtn").hidden = true;
+$("segInbox").onclick = () => setView("inbox");
+$("segChats").onclick = () => setView("chats");
+$("segInboxM").onclick = () => setView("inbox");
+$("segChatsM").onclick = () => setView("chats");
+$("segObserver").onclick = () => {
+  settings.mode = "observer"; saveSettings(); applyMode();
 };
-$("partBtn").onclick = () => { $("partPanel").hidden = !$("partPanel").hidden; };
-$("headText").onclick = () => { $("partPanel").hidden = !$("partPanel").hidden; };
-$("ppClose").onclick = () => { $("partPanel").hidden = true; };
+$("segParticipant").onclick = becomeParticipant;
+$("settingsBtn").onclick = openSettings;
+$("retryBtn").onclick = () => { loadHealth(); loadChats().catch(() => {}); };
+$("newChatBtn").onclick = createChatFlow;
+$("newChatBtn2").onclick = createChatFlow;
+$("backBtn").onclick = () => { $("chatsView").classList.remove("thread-open"); };
+$("partBtn").onclick = () => { $("partRail").hidden = !$("partRail").hidden; };
+$("threadTitle").onclick = () => { $("partRail").hidden = !$("partRail").hidden; };
 $("joinBtn").onclick = () => joinCurrent().catch((e) => toast(e.message, true));
 $("leaveBtn").onclick = () => leaveCurrent().catch((e) => toast(e.message, true));
 $("deleteBtn").onclick = deleteCurrentFlow;
+$("becomeBtn").onclick = becomeParticipant;
 $("sendBtn").onclick = sendMessage;
+$("chatFilter").addEventListener("input", renderChatList);
+$("inboxSearch").addEventListener("input", renderInbox);
 $("input").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
     sendMessage();
   }
 });
+$("input").addEventListener("input", (event) => {
+  const el = event.target;
+  el.style.height = "";
+  el.style.height = Math.min(180, el.scrollHeight) + "px";
+});
 
+/* --------------------------------------------------------------- start */
 applyMode();
-loadChats().catch((error) => toast(error.message, true));
+setView(state.me && isParticipant() ? "inbox" : "chats");
+loadChats().then(() => {
+  // Presence aggregates per-chat participants: it needs the chat list first.
+  if (state.view === "inbox") loadPresence().catch(() => {});
+}).catch((error) => toast(error.message, true));
 startPollers();
 </script>
 </body>
