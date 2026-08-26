@@ -468,6 +468,14 @@ La UI è un client come gli altri, ma con una persona davanti: le impostazioni s
 
 Tutte le impostazioni vivono **nel browser** (localStorage): la UI resta senza stato lato server, coerente con §3.
 
+### 10.6 Eliminazione delle chat
+
+Lasciare una chat conserva la storia e riserva l'ID (§7.2); **eliminarla la cancella per tutti, definitivamente** — messaggi, membership e menzioni. È un'operazione da supervisore umano, quindi vive nella UI web:
+
+- **Endpoint**: `DELETE /chats/{id}` con `participant_id` e `confirm_name`. Chiunque sia registrato può eliminare — il perimetro Tailscale è il modello di fiducia, come per ogni altra scrittura (§2.2) — ma il nome della chat va **ridigitato esattamente** (`confirm_name`, stessa collation NOCASE dell'indice univoco): un `chat_id` sbagliato deve fallire rumorosamente, mai distruggere la chat sbagliata. L'eliminazione è loggata sul server con chi l'ha chiesta e i conteggi.
+- **UI**: bottone 🗑 nell'header della chat, solo in modalità partecipante — l'osservatore legge senza toccare niente (§10.2), e cancellare è il contrario di non toccare. La conferma è una modale che richiede di ridigitare il nome.
+- **Conseguenze**: il nome torna disponibile per una chat nuova (ID nuovo, mai riciclato). Un browser che sta leggendo la chat eliminata riceve 404 al polling successivo: la UI chiude la vista con un avviso esplicito, non un errore silenzioso. Un agente MCP che la seguiva semplicemente non la vede più nell'inbox (`GET /messages` è scopato sulle membership, che non esistono più); una chiamata puntuale sulla chat risponde 404 con il consueto messaggio esplicito.
+
 ---
 
 ## 11. Progetto open source (GitHub)

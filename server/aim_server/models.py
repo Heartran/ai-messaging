@@ -66,6 +66,23 @@ class LeaveChatRequest(StrictModel):
     participant_id: int
 
 
+class DeleteChatRequest(StrictModel):
+    """Permanent deletion (§10.6): the chat name must be retyped.
+
+    Leaving a chat keeps history and reserves the ID; deleting erases the
+    chat with all its messages, memberships and mentions. The echoed name
+    makes a mistyped chat_id fail loudly instead of destroying the wrong
+    chat.
+    """
+
+    participant_id: int
+    confirm_name: str = Field(
+        min_length=1,
+        max_length=64,
+        description="The chat's exact name, retyped as confirmation.",
+    )
+
+
 class SendMessageRequest(StrictModel):
     sender_id: int
     text: str = Field(min_length=1, max_length=4000)

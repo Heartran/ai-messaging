@@ -32,6 +32,7 @@ from .db import (
 )
 from .models import (
     CreateChatRequest,
+    DeleteChatRequest,
     FollowChatRequest,
     IntroduceRequest,
     LeaveChatRequest,
@@ -820,6 +821,60 @@ def _build_router():
             "left": True,
             "already_left": False,
             "left_at": left_at,
+        }
+
+    @router.delete("/chats/{chat_id}")
+    def delete_chat(
+        chat_id: int,
+        body: DeleteChatRequest,
+        conn: sqlite3.Connection = Depends(_get_conn),
+    ):
+        """Permanently delete a chat with its messages and memberships (§10.6).
+
+        Unlike leave (which keeps history and reserves the ID), this erases
+        everything the chat contained. Any registered participant may do it
+        — the tailnet perimeter is the trust model, same as every other
+        write — but the chat name must be retyped in `confirm_name`: a
+        mistyped chat_id must fail loudly, never destroy the wrong chat.
+        The name becomes available again for a new chat.
+        """
+        chat = require_chat(conn, chat_id)
+        actor = require_participant(conn, body.participant_id)
+        touch(conn, actor["id"])
+        # Same collation as the unique index on chats.name (NOCASE).
+        if body.confirm_name.strip().lower() != chat["name"].strip().lower():
+            raise HTTPException(
+                status_code=409,
+                detail=f"confirm_name {body.confirm_name!r} does not match "
+                f"chat {chat_id} ({chat['name']!r}). Retype the exact chat "
+                "name to confirm the permanent deletion.",
+            )
+        # Mentions cascade off messages (ON DELETE CASCADE + foreign_keys=ON).
+        deleted_messages = conn.execute(
+            "DELETE FROM messages WHERE chat_id = ?", (chat_id,)
+        ).rowcount
+        deleted_members = conn.execute(
+            "DELETE FROM chat_members WHERE chat_id = ?", (chat_id,)
+        ).rowcount
+        conn.execute("DELETE FROM chats WHERE id = ?", (chat_id,))
+        conn.commit()
+        logger.info(
+            "chat %d (%r) permanently deleted by participant %d (%s): "
+            "%d message(s), %d membership(s)",
+            chat_id,
+            chat["name"],
+            actor["id"],
+            actor["name"],
+            deleted_messages,
+            deleted_members,
+        )
+        return {
+            "chat_id": chat_id,
+            "name": chat["name"],
+            "deleted": True,
+            "deleted_by": actor["id"],
+            "deleted_messages": deleted_messages,
+            "deleted_members": deleted_members,
         }
 
     @router.post("/chats/{chat_id}/messages", status_code=201)
