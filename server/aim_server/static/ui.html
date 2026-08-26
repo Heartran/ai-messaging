@@ -99,6 +99,7 @@
   .head-btn:hover { color: var(--text); background: var(--panel-2); }
   .head-btn.join { border-color: var(--accent); color: var(--accent); }
   .head-btn.leave:hover { color: var(--danger); }
+  .head-btn.delete:hover { color: var(--danger); border-color: var(--danger); }
 
   #messages {
     flex: 1; overflow-y: auto; padding: 20px 8%;
@@ -249,6 +250,7 @@
         </div>
         <button class="head-btn join" id="joinBtn" hidden>Join chat</button>
         <button class="head-btn leave" id="leaveBtn" hidden>Leave</button>
+        <button class="head-btn delete" id="deleteBtn" title="Delete chat permanently" hidden>🗑</button>
         <button class="head-btn" id="partBtn" title="Participants">👥</button>
       </div>
       <div id="messages"></div>
@@ -355,6 +357,11 @@ async function api(path, options) {
 }
 const post = (path, payload) => api(path, {
   method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(payload),
+});
+const apiDelete = (path, payload) => api(path, {
+  method: "DELETE",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(payload),
 });
@@ -576,7 +583,13 @@ function renderChatList() {
     }
     bodyEl.appendChild(top); bodyEl.appendChild(bottom);
     item.appendChild(avatar); item.appendChild(bodyEl);
-    item.onclick = () => openChat(chat.id);
+    item.onclick = () => openChat(chat.id).catch((error) => {
+      if (error.status === 404) { // deleted elsewhere, list was stale
+        closeCurrentChat();
+        loadChats().catch(() => {});
+      }
+      toast(error.message, true);
+    });
     list.appendChild(item);
   }
 }
@@ -649,7 +662,16 @@ async function pollNewMessages() {
     if (nearBottom) scrollBottom();
     loadChats();
     loadParticipants(state.current); // a new sender may have just joined
-  } catch { /* transient: next poll retries */ }
+  } catch (error) {
+    if (error.status === 404) {
+      // The chat was deleted from another browser while we were reading it.
+      closeCurrentChat();
+      toast("This chat was deleted.", true);
+      loadChats().catch(() => {});
+      return;
+    }
+    /* transient: next poll retries */
+  }
 }
 
 let lastDay = null, lastSender = null;
@@ -773,6 +795,9 @@ async function loadParticipants(chatId) {
   const meActive = state.me && active.some((p) => p.id === state.me.participant_id);
   $("joinBtn").hidden = !!meActive || !isParticipant();
   $("leaveBtn").hidden = !meActive || !isParticipant();
+  // Observer mode reads without touching anything (§10.2) — deleting is
+  // the opposite of not touching.
+  $("deleteBtn").hidden = !isParticipant();
   renderMentionBar(active);
   renderParticipants(body.participants);
 }
@@ -879,6 +904,50 @@ async function leaveCurrent() {
     { participant_id: state.me.participant_id });
   toast("You left this chat (your ID stays reserved).");
   await loadParticipants(state.current);
+}
+
+function closeCurrentChat() {
+  state.current = null;
+  state.maxMsgId = 0;
+  clearInterval(state.pollMsgs);
+  $("chatView").hidden = true;
+  $("placeholder").hidden = false;
+  $("partPanel").hidden = true;
+  $("sidebar").classList.remove("chat-open");
+  $("backBtn").hidden = true;
+}
+
+function deleteCurrentFlow() {
+  if (!isParticipant()) {
+    toast("Observer mode: enable Participant in ⚙ Settings to delete chats.");
+    return;
+  }
+  if (state.current == null) return;
+  const chat = state.chats.find((c) => c.id === state.current);
+  const chatName = chat ? chat.name : $("chatName").textContent;
+  ensureRegistered().then(() => {
+    modal({
+      title: "Delete this chat?",
+      text: `“${chatName}” will be deleted permanently for everyone, ` +
+        "with all its messages and memberships. There is no undo. " +
+        "Retype the chat name to confirm.",
+      fields: [{ id: "confirm", label: "Chat name", maxlength: 64 }],
+      submit: "Delete forever",
+      onSubmit: async (values) => {
+        const deletedId = state.current;
+        const result = await apiDelete(`/chats/${deletedId}`, {
+          participant_id: state.me.participant_id,
+          confirm_name: values.confirm.trim(),
+        });
+        delete state.lastSeen[deletedId];
+        saveJSON("aim_ui_lastseen", state.lastSeen);
+        closeCurrentChat();
+        toast(`Chat “${result.name}” deleted ` +
+          `(${result.deleted_messages} messages gone).`);
+        await loadChats();
+      },
+    });
+  }).catch(() => {});
 }
 
 async function sendMessage() {
@@ -1075,6 +1144,7 @@ $("headText").onclick = () => { $("partPanel").hidden = !$("partPanel").hidden; 
 $("ppClose").onclick = () => { $("partPanel").hidden = true; };
 $("joinBtn").onclick = () => joinCurrent().catch((e) => toast(e.message, true));
 $("leaveBtn").onclick = () => leaveCurrent().catch((e) => toast(e.message, true));
+$("deleteBtn").onclick = deleteCurrentFlow;
 $("sendBtn").onclick = sendMessage;
 $("input").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {

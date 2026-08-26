@@ -354,6 +354,92 @@ def test_leave_twice_is_idempotent_with_flag(client):
     assert second["already_left"] is True
 
 
+# ------------------------------------------------------------ delete chat
+
+def test_delete_chat_erases_messages_members_and_frees_the_name(client):
+    a = register(client, name="Alice")["participant_id"]
+    b = register(client, name="Bob")["participant_id"]
+    chat_id = client.post(
+        "/chats", json={"participant_id": a, "name": "doomed"}
+    ).json()["chat_id"]
+    client.post(f"/chats/{chat_id}/follow", json={"participant_id": b})
+    client.post(
+        f"/chats/{chat_id}/messages",
+        json={"sender_id": a, "text": "hello @Bob", "mentions": [b]},
+    )
+    client.post(
+        f"/chats/{chat_id}/messages", json={"sender_id": b, "text": "hi"}
+    )
+
+    result = client.request(
+        "DELETE",
+        f"/chats/{chat_id}",
+        json={"participant_id": b, "confirm_name": "doomed"},
+    ).json()
+    assert result["deleted"] is True
+    assert result["deleted_messages"] == 2
+    assert result["deleted_members"] == 2
+    assert result["deleted_by"] == b
+
+    # Gone from the list, and per-chat endpoints answer 404, not a stub.
+    chats = client.get("/chats").json()["chats"]
+    assert all(chat["id"] != chat_id for chat in chats)
+    assert client.get(f"/chats/{chat_id}/messages").status_code == 404
+    assert client.get(f"/chats/{chat_id}/participants").status_code == 404
+
+    # The unique name is released for a brand-new chat (new ID).
+    recreated = client.post(
+        "/chats", json={"participant_id": a, "name": "doomed"}
+    )
+    assert recreated.status_code == 201
+    assert recreated.json()["chat_id"] != chat_id
+
+
+def test_delete_chat_requires_the_exact_name_retyped(client):
+    pid = register(client)["participant_id"]
+    chat_id = client.post(
+        "/chats", json={"participant_id": pid, "name": "precious"}
+    ).json()["chat_id"]
+    response = client.request(
+        "DELETE",
+        f"/chats/{chat_id}",
+        json={"participant_id": pid, "confirm_name": "precios"},
+    )
+    assert response.status_code == 409
+    assert "does not match" in response.json()["detail"]
+    # Nothing happened: the chat is still listed.
+    chats = client.get("/chats").json()["chats"]
+    assert any(chat["id"] == chat_id for chat in chats)
+
+    # Same collation as the unique index (NOCASE): case is not a trap.
+    ok = client.request(
+        "DELETE",
+        f"/chats/{chat_id}",
+        json={"participant_id": pid, "confirm_name": "PRECIOUS"},
+    )
+    assert ok.status_code == 200
+
+
+def test_delete_chat_requires_registration_and_existing_chat(client):
+    pid = register(client)["participant_id"]
+    chat_id = client.post(
+        "/chats", json={"participant_id": pid, "name": "general"}
+    ).json()["chat_id"]
+    ghost = client.request(
+        "DELETE",
+        f"/chats/{chat_id}",
+        json={"participant_id": 999, "confirm_name": "general"},
+    )
+    assert ghost.status_code == 404
+    assert ghost.json()["detail"]["code"] == "unknown_participant"
+    missing = client.request(
+        "DELETE",
+        "/chats/999",
+        json={"participant_id": pid, "confirm_name": "whatever"},
+    )
+    assert missing.status_code == 404
+
+
 # ---------------------------------------------------------------- messages
 
 def make_chat_with_two(client):
