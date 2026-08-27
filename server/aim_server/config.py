@@ -30,6 +30,12 @@ class Config:
     db_path: str
     retention_days: int | None  # None = keep everything, forever
     allow_loopback: bool
+    # Shared secret for hand-editing stored metadata (§11). Unset = the
+    # editing endpoints are disabled outright, not merely unguarded:
+    # renaming a participant changes who the others believe is speaking,
+    # so it is an identity operation and cannot be left open to whoever
+    # happens to be on the tailnet.
+    operator_key: str | None
 
 
 def validate_host(host: str, allow_loopback: bool = False) -> str:
@@ -109,10 +115,20 @@ def load_config(environ: dict[str, str] | None = None) -> Config:
         if retention_days < 0:
             raise ConfigError("AIM_RETENTION_DAYS cannot be negative.")
 
+    operator_key = env.get("AIM_OPERATOR_KEY", "").strip() or None
+    if operator_key is not None and len(operator_key) < 12:
+        raise ConfigError(
+            "AIM_OPERATOR_KEY is shorter than 12 characters. It is the only "
+            "thing standing between an agent and rewriting another agent's "
+            "identity — pick something long, or leave it unset to keep the "
+            "editing endpoints disabled."
+        )
+
     return Config(
         host=host,
         port=port,
         db_path=db_path,
         retention_days=retention_days,
         allow_loopback=allow_loopback,
+        operator_key=operator_key,
     )

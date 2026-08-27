@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -37,6 +38,8 @@ from .db import (
 from .models import (
     CreateChatRequest,
     DeleteChatRequest,
+    EditChatRequest,
+    EditParticipantRequest,
     FollowChatRequest,
     IntroduceRequest,
     LeaveChatRequest,
@@ -72,7 +75,11 @@ INTRODUCE_NEXT_STEP = (
 )
 
 
-def create_app(db_path: str, retention_days: int | None = None) -> FastAPI:
+def create_app(
+    db_path: str,
+    retention_days: int | None = None,
+    operator_key: str | None = None,
+) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         init_db(db_path)
@@ -100,6 +107,7 @@ def create_app(db_path: str, retention_days: int | None = None) -> FastAPI:
     )
     app.state.db_path = db_path
     app.state.retention_days = retention_days
+    app.state.operator_key = operator_key
     app.state.instance_id = None
 
     def current_instance() -> str | None:
@@ -155,7 +163,7 @@ def create_app(db_path: str, retention_days: int | None = None) -> FastAPI:
             headers=headers,
         )
 
-    app.include_router(_build_router())
+    app.include_router(_build_router(operator_key))
     return app
 
 
@@ -226,7 +234,7 @@ async def _reject_unknown_query_params(request: Request) -> None:
         )
 
 
-def _build_router():
+def _build_router(operator_key: str | None = None):
     from fastapi import APIRouter
 
     router = APIRouter(dependencies=[Depends(_reject_unknown_query_params)])
@@ -310,6 +318,64 @@ def _build_router():
                 },
             )
         return row
+
+    def require_operator(key: str | None) -> None:
+        """Guard the hand-editing endpoints (§11).
+
+        Editing stored metadata is an identity operation, not a cosmetic
+        one: rename a participant and you change who every other agent
+        believes is speaking. So it sits above the participant token —
+        that proves you are #7, not that you may rewrite #4 — behind a
+        secret configured on the server, which no agent on the tailnet
+        has any way to hold.
+        """
+        if not operator_key:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "editing_disabled",
+                    "message": "Hand-editing is switched off on this server: "
+                    "AIM_OPERATOR_KEY is not set. Set it in the server's "
+                    "environment and restart to enable it.",
+                },
+            )
+        if not key or not secrets.compare_digest(key, operator_key):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "not_operator",
+                    "message": "Editing stored metadata needs the operator "
+                    "key in the X-AIM-Operator header. A participant token "
+                    "proves who you are; it does not authorize rewriting "
+                    "somebody else's identity.",
+                },
+            )
+
+    def apply_edit(
+        conn: sqlite3.Connection,
+        table: str,
+        row: sqlite3.Row,
+        changes: dict[str, object],
+    ) -> dict[str, dict[str, object]]:
+        """Write only the fields that actually differ; return the diff.
+
+        A hand edit is never silent (§11): the caller gets before/after
+        for exactly what moved, and the same pairs go to the server log.
+        """
+        diff: dict[str, dict[str, object]] = {}
+        for field, value in changes.items():
+            if value is None or row[field] == value:
+                continue
+            diff[field] = {"from": row[field], "to": value}
+        if not diff:
+            return diff
+        assignments = ", ".join(f"{field} = ?" for field in diff)
+        conn.execute(
+            f"UPDATE {table} SET {assignments} WHERE id = ?",
+            (*(change["to"] for change in diff.values()), row["id"]),
+        )
+        conn.commit()
+        return diff
 
     def require_chat(conn: sqlite3.Connection, chat_id: int) -> sqlite3.Row:
         row = conn.execute("SELECT * FROM chats WHERE id = ?", (chat_id,)).fetchone()
@@ -586,6 +652,10 @@ def _build_router():
             "instance_id": request.app.state.current_instance(),
             "server_time": now_utc(),
             "retention": {"days": retention_days, "policy": policy},
+            # Whether hand-editing is available at all (§11). Saying so is
+            # not a leak: the key itself is what protects the endpoints,
+            # and a UI that cannot tell would have to guess.
+            "editing_enabled": bool(request.app.state.operator_key),
         }
 
     @router.post("/register", status_code=201)
@@ -1207,6 +1277,151 @@ def _build_router():
             "count": len(participants),
             "dormant_after_hours": DORMANT_AFTER_HOURS,
             "framing": FRAMING,
+        }
+
+    # ------------------------------------------------ operator corrections
+
+    @router.get("/admin/participants")
+    def admin_list_participants(
+        conn: sqlite3.Connection = Depends(_get_conn),
+        x_aim_operator: str | None = Header(default=None, alias="X-AIM-Operator"),
+    ):
+        """Every participant, for the editing surface (§11).
+
+        Deliberately not the public listing: it adds the flags an operator
+        needs to see (does this identity still hold a token, does it carry
+        a continuity key) — while the key itself, being a credential,
+        stays where it has always been: unread.
+        """
+        require_operator(x_aim_operator)
+        rows = conn.execute(
+            "SELECT id, name, machine, client_type, agent_type, registered_at, "
+            "last_seen_at, token_hash, client_session_key FROM participants "
+            "ORDER BY id"
+        ).fetchall()
+        participants = []
+        for row in rows:
+            entry = {
+                key: row[key]
+                for key in ("id", "name", "machine", "client_type",
+                            "agent_type", "registered_at", "last_seen_at")
+            }
+            entry["has_token"] = row["token_hash"] is not None
+            entry["has_session_key"] = row["client_session_key"] is not None
+            participants.append(entry)
+        return {"participants": participants, "count": len(participants)}
+
+    @router.patch("/admin/participants/{participant_id}")
+    def edit_participant(
+        participant_id: int,
+        body: EditParticipantRequest,
+        conn: sqlite3.Connection = Depends(_get_conn),
+        x_aim_operator: str | None = Header(default=None, alias="X-AIM-Operator"),
+    ):
+        """Correct a participant's declared metadata by hand (§11).
+
+        Agents fill these in themselves and get them wrong in ways that
+        compound: one machine spelled two ways, a dozen identities called
+        the same name, a client that registered with an account ID where a
+        conversation ID belonged. None of it is reachable by the agents —
+        the server owns the record — so a human needs a way in.
+        """
+        require_operator(x_aim_operator)
+        row = require_participant(conn, participant_id)
+        changes = {
+            "name": body.name,
+            "machine": body.machine,
+            "client_type": body.client_type,
+            "agent_type": body.agent_type,
+        }
+        try:
+            diff = apply_edit(conn, "participants", row, changes)
+            if body.client_session_key is not None:
+                if body.client_session_key != row["client_session_key"]:
+                    conn.execute(
+                        "UPDATE participants SET client_session_key = ? "
+                        "WHERE id = ?",
+                        (body.client_session_key, participant_id),
+                    )
+                    conn.commit()
+                    # The value is a credential: the diff records that it
+                    # moved, never what it moved from or to.
+                    diff["client_session_key"] = {"from": "(hidden)", "to": "(replaced)"}
+        except sqlite3.IntegrityError:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "session_key_taken",
+                    "message": "Another participant already registered with "
+                    "that client_session_key. Keys are unique: one "
+                    "conversation, one identity (§4.3).",
+                },
+            ) from None
+        if body.revoke_token and row["token_hash"] is not None:
+            conn.execute(
+                "UPDATE participants SET token_hash = NULL WHERE id = ?",
+                (participant_id,),
+            )
+            conn.commit()
+            diff["token"] = {"from": "(issued)", "to": "(revoked)"}
+        if diff:
+            logger.info(
+                "operator edited participant %d (%s): %s",
+                participant_id, row["name"],
+                ", ".join(
+                    f"{field}: {value['from']!r} -> {value['to']!r}"
+                    for field, value in diff.items()
+                ),
+            )
+        updated = require_participant(conn, participant_id)
+        return {
+            "participant_id": participant_id,
+            "changed": diff,
+            "unchanged": not diff,
+            "participant": {
+                key: updated[key]
+                for key in ("id", "name", "machine", "client_type",
+                            "agent_type", "registered_at", "last_seen_at")
+            },
+        }
+
+    @router.patch("/admin/chats/{chat_id}")
+    def edit_chat(
+        chat_id: int,
+        body: EditChatRequest,
+        conn: sqlite3.Connection = Depends(_get_conn),
+        x_aim_operator: str | None = Header(default=None, alias="X-AIM-Operator"),
+    ):
+        """Correct a chat's name or description (§11)."""
+        require_operator(x_aim_operator)
+        row = require_chat(conn, chat_id)
+        try:
+            diff = apply_edit(
+                conn, "chats", row,
+                {"name": body.name, "description": body.description},
+            )
+        except sqlite3.IntegrityError:
+            raise HTTPException(
+                status_code=409,
+                detail=f"A chat named {body.name!r} already exists. Chat "
+                "names are unique across the system.",
+            ) from None
+        if diff:
+            logger.info(
+                "operator edited chat %d (%s): %s",
+                chat_id, row["name"],
+                ", ".join(
+                    f"{field}: {value['from']!r} -> {value['to']!r}"
+                    for field, value in diff.items()
+                ),
+            )
+        updated = require_chat(conn, chat_id)
+        return {
+            "chat_id": chat_id,
+            "changed": diff,
+            "unchanged": not diff,
+            "chat": {"id": updated["id"], "name": updated["name"],
+                     "description": updated["description"]},
         }
 
     @router.get("/participants/{participant_id}/chats")

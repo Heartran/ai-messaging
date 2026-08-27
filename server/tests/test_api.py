@@ -354,6 +354,197 @@ def test_token_is_never_echoed_back(raw):
         assert token not in raw.get(path).text, path
 
 
+# ---------------------------------------------------- operator corrections
+
+OPKEY = "operator-key-long-enough"
+
+
+@pytest.fixture()
+def admin(tmp_path):
+    """A server with hand-editing switched on."""
+    app = create_app(str(tmp_path / "admin.db"), operator_key=OPKEY)
+    with AuthenticatingClient(app) as test_client:
+        yield test_client
+
+
+def op(extra=None):
+    headers = {"X-AIM-Operator": OPKEY}
+    headers.update(extra or {})
+    return headers
+
+
+def test_editing_is_off_unless_a_key_is_configured(client):
+    """No key configured → the endpoints are not merely unguarded, they
+    are absent. A server without an operator has no editing surface."""
+    pid = register(client)["participant_id"]
+    response = client.patch(f"/admin/participants/{pid}", json={"name": "X"},
+                            headers={"X-AIM-Operator": "anything"})
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "editing_disabled"
+    assert client.get("/health").json()["editing_enabled"] is False
+
+
+def test_a_participant_token_does_not_authorize_editing(admin):
+    """The regression that matters: proving you are #1 must never imply
+    you may rewrite #2 — that was yesterday's whole lesson."""
+    me = admin.post("/register", json={
+        "name": "Nova", "machine": "M", "client_type": "chat",
+        "agent_type": "claude"}).json()
+    victim = admin.post("/register", json={
+        "name": "Federico", "machine": "web-ui", "client_type": "web-ui",
+        "agent_type": "human"}).json()
+
+    naked = admin.patch(f"/admin/participants/{victim['participant_id']}",
+                        json={"name": "Impostor"})
+    assert naked.status_code == 403
+    assert naked.json()["detail"]["code"] == "not_operator"
+
+    with_token = admin.patch(
+        f"/admin/participants/{victim['participant_id']}",
+        json={"name": "Impostor"},
+        headers={"X-AIM-Token": me["participant_token"]})
+    assert with_token.status_code == 403
+
+    wrong_key = admin.patch(f"/admin/participants/{victim['participant_id']}",
+                            json={"name": "Impostor"},
+                            headers={"X-AIM-Operator": "not-the-key"})
+    assert wrong_key.status_code == 403
+
+    still = admin.get("/admin/participants", headers=op()).json()
+    assert {p["name"] for p in still["participants"]} == {"Nova", "Federico"}
+
+
+def test_editing_metadata_reports_exactly_what_moved(admin):
+    pid = register(admin, name="Nova", machine="OMEN-Federico")["participant_id"]
+    body = admin.patch(f"/admin/participants/{pid}",
+                       json={"machine": "OMEN-FEDERICO", "name": "Nova"},
+                       headers=op()).json()
+    # Only the field that actually differs is reported and written.
+    assert body["changed"] == {
+        "machine": {"from": "OMEN-Federico", "to": "OMEN-FEDERICO"}}
+    assert body["participant"]["machine"] == "OMEN-FEDERICO"
+    assert body["participant"]["name"] == "Nova"
+
+
+def test_editing_nothing_is_not_an_error(admin):
+    pid = register(admin, name="Nova")["participant_id"]
+    body = admin.patch(f"/admin/participants/{pid}", json={}, headers=op()).json()
+    assert body["unchanged"] is True and body["changed"] == {}
+
+
+def test_the_server_owned_record_is_not_editable(admin):
+    """IDs and timestamps are what the server witnessed; they are not
+    metadata and cannot be rewritten by anyone."""
+    pid = register(admin)["participant_id"]
+    for forbidden in ({"id": 99}, {"registered_at": "2000-01-01T00:00:00.000000Z"},
+                      {"last_seen_at": None}, {"token_hash": "x"}):
+        response = admin.patch(f"/admin/participants/{pid}",
+                               json=forbidden, headers=op())
+        assert response.status_code == 422, forbidden
+
+
+def test_client_type_is_still_validated_when_edited(admin):
+    pid = register(admin)["participant_id"]
+    response = admin.patch(f"/admin/participants/{pid}",
+                           json={"client_type": "browser"}, headers=op())
+    assert response.status_code == 422
+
+
+def test_replacing_a_session_key_never_reveals_it(admin):
+    """The fix for a client that registered with the wrong identifier —
+    an account ID where a conversation ID belonged."""
+    wrong = "bae36e77-b092-49eb-8ff5-83360b2e81b4"  # an account, not a chat
+    pid = admin.post("/register", json={
+        "name": "Nova", "machine": "OMEN", "client_type": "cowork",
+        "agent_type": "claude", "client_session_key": wrong}).json()["participant_id"]
+
+    body = admin.patch(f"/admin/participants/{pid}",
+                       json={"client_session_key": "conversation-the-right-one"},
+                       headers=op()).json()
+    assert body["changed"]["client_session_key"] == {
+        "from": "(hidden)", "to": "(replaced)"}
+
+    listing = admin.get("/admin/participants", headers=op())
+    assert wrong not in listing.text and "the-right-one" not in listing.text
+    assert listing.json()["participants"][0]["has_session_key"] is True
+
+    # The new key now resumes that identity; the old one no longer does.
+    resumed = admin.post("/register", json={
+        "name": "Nova", "machine": "OMEN", "client_type": "cowork",
+        "agent_type": "claude",
+        "client_session_key": "conversation-the-right-one"}).json()
+    assert resumed["resumed"] is True and resumed["participant_id"] == pid
+
+
+def test_a_session_key_already_taken_is_refused(admin):
+    first = admin.post("/register", json={
+        "name": "A", "machine": "M", "client_type": "chat",
+        "agent_type": "claude", "client_session_key": "conversation-one"}).json()
+    second = admin.post("/register", json={
+        "name": "B", "machine": "M", "client_type": "chat",
+        "agent_type": "claude", "client_session_key": "conversation-two"}).json()
+    response = admin.patch(f"/admin/participants/{second['participant_id']}",
+                           json={"client_session_key": "conversation-one"},
+                           headers=op())
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "session_key_taken"
+    assert first["participant_id"] != second["participant_id"]
+
+
+def test_revoking_a_token_evicts_that_client(admin):
+    """Containment: an identity can be forced to register again."""
+    me = admin.post("/register", json={
+        "name": "Nova", "machine": "M", "client_type": "chat",
+        "agent_type": "claude"}).json()
+    pid, token = me["participant_id"], me["participant_token"]
+    chat_id = admin.post("/chats", json={"participant_id": pid, "name": "g"},
+                         headers={"X-AIM-Token": token}).json()["chat_id"]
+
+    body = admin.patch(f"/admin/participants/{pid}",
+                       json={"revoke_token": True}, headers=op()).json()
+    assert body["changed"]["token"] == {"from": "(issued)", "to": "(revoked)"}
+
+    blocked = admin.post(f"/chats/{chat_id}/messages",
+                         json={"sender_id": pid, "text": "still here?"},
+                         headers={"X-AIM-Token": token})
+    assert blocked.status_code == 401
+    assert blocked.json()["detail"]["code"] == "token_required"
+
+
+def test_editing_a_chat_name_and_description(admin):
+    pid = register(admin)["participant_id"]
+    chat_id = admin.post("/chats", json={
+        "participant_id": pid, "name": "typo-chat"}).json()["chat_id"]
+    body = admin.patch(f"/admin/chats/{chat_id}",
+                       json={"name": "ollama-pc-gaming",
+                             "description": "What it is really for"},
+                       headers=op()).json()
+    assert body["chat"]["name"] == "ollama-pc-gaming"
+    assert body["chat"]["description"] == "What it is really for"
+    assert admin.get("/chats").json()["chats"][0]["name"] == "ollama-pc-gaming"
+
+
+def test_renaming_a_chat_onto_an_existing_name_is_refused(admin):
+    pid = register(admin)["participant_id"]
+    admin.post("/chats", json={"participant_id": pid, "name": "taken"})
+    other = admin.post("/chats", json={
+        "participant_id": pid, "name": "free"}).json()["chat_id"]
+    response = admin.patch(f"/admin/chats/{other}",
+                           json={"name": "taken"}, headers=op())
+    assert response.status_code == 409
+
+
+def test_the_admin_listing_never_carries_credentials(admin):
+    key = "conversation-secret-key-value"
+    admin.post("/register", json={
+        "name": "Nova", "machine": "M", "client_type": "chat",
+        "agent_type": "claude", "client_session_key": key})
+    listing = admin.get("/admin/participants", headers=op())
+    assert key not in listing.text
+    assert "token_hash" not in listing.text
+    assert listing.json()["participants"][0]["has_token"] is True
+
+
 # ------------------------------------------------------- database identity
 
 def test_every_payload_declares_the_database_instance(raw):

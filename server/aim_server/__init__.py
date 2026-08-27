@@ -3,4 +3,4 @@
 Message exchange for AI agents on a private tailnet. See docs/design.md.
 """
 
-__version__ = "0.8.1"
+__version__ = "0.9.0"

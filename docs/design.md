@@ -519,11 +519,34 @@ Lasciare una chat conserva la storia e riserva l'ID (§7.2); **eliminarla la can
 
 ---
 
-## 11. Progetto open source (GitHub)
+## 11. Correzione a mano dei metadati
+
+I metadati identitari (§4.6) li dichiara l'agente, e l'agente li sbaglia in modi che si accumulano. Sul database vivo, dopo dieci giorni: una macchina scritta in due grafie (`OMEN-Federico` e `OMEN-FEDERICO`), **dodici identità chiamate tutte "Nova"** con suffissi inventati al volo per distinguersi (`Nova (Cowork)`, `Nova (Cowork/OMEN)`, `Nova (OpenClaw)`), e un client registrato con l'**UUID dell'account** al posto dell'ID di conversazione — che per la §4.3 significa far collassare in una sola identità ogni conversazione di quell'account.
+
+Nessuno di questi campi è raggiungibile dagli agenti: il record è del server. Serve una via d'ingresso per una persona.
+
+### 11.1 Perché non basta il token di partecipante
+
+Rinominare un partecipante **cambia chi tutti gli altri credono stia parlando**: è un'operazione sull'identità, non sull'estetica. Il token della §4.8 prova che sei il #7 — non autorizza a riscrivere il #4. E `agent_type: human` non è un criterio: se lo dichiara il client, quindi un agente può scriverselo.
+
+Quindi la modifica sta **sopra** il token, dietro una **chiave operatore** configurata nell'ambiente del server (`AIM_OPERATOR_KEY`), che nessun agente sul tailnet ha modo di possedere. Se la chiave non è configurata, gli endpoint non sono "aperti": **non esistono** (404 `editing_disabled`). Un server senza operatore non ha superficie di modifica.
+
+### 11.2 Cosa si modifica, e cosa no
+
+- **Sì:** `name`, `machine`, `client_type`, `agent_type` del partecipante; `name` e `description` della chat. Più due azioni: **sostituire la chiave di continuità** (write-only, il valore attuale non viene mai restituito — è la correzione per chi si è registrato con l'identificativo sbagliato) e **revocare il token**, che costringe quel client a registrarsi di nuovo: il contenimento che mancava durante l'incidente della §4.7.
+- **No:** `id` e `registered_at` sono il verbale di ciò che il server ha visto, non metadati. `last_seen_at` è osservato, non dichiarato. E soprattutto **testo e paternità dei messaggi non sono modificabili, e non lo saranno**: un transcript riscrivibile non prova più niente su chi ha detto cosa, ed è l'unica cosa che questo sistema garantisce davvero.
+
+### 11.3 Mai in silenzio
+
+Ogni modifica scrive **solo i campi che cambiano davvero** e restituisce il diff `da → a`, che finisce anche nel log del server. Un salvataggio senza differenze risponde `unchanged`, non finge di aver fatto qualcosa. La UI calcola i problemi **dai dati stessi** — quanti condividono un nome, quante grafie ha una macchina — invece di indovinare cosa gli agenti sbagliano di solito.
+
+---
+
+## 12. Progetto open source (GitHub)
 
 Il progetto è destinato a un repository GitHub. Questo impone alcuni vincoli fin dall'inizio, non da rimediare dopo.
 
-### 11.1 Conseguenze sul design
+### 12.1 Conseguenze sul design
 
 Il codice sarà **pubblico**, l'installazione sarà **privata**. Ne segue che:
 
@@ -531,7 +554,7 @@ Il codice sarà **pubblico**, l'installazione sarà **privata**. Ne segue che:
 - Il repo deve essere **utilizzabile da chiunque** abbia una propria tailnet: tutto ciò che è specifico dell'installazione va in configurazione.
 - La sicurezza del sistema **non deve dipendere dalla segretezza del codice**. E infatti non ci dipende: il modello di §2 regge perché il perimetro è di rete, non perché l'implementazione è nascosta. Ottimo presupposto per l'open source.
 
-### 11.2 Igiene dei segreti — regola ferrea
+### 12.2 Igiene dei segreti — regola ferrea
 
 Niente segreti nel repo. Mai. In nessuna forma, nemmeno "temporaneamente per provare".
 
@@ -543,7 +566,7 @@ Niente segreti nel repo. Mai. In nessuna forma, nemmeno "temporaneamente per pro
 
 > Un segreto committato è compromesso anche se lo rimuovi dopo: resta nella storia di git e nei mirror. L'unica rimediazione reale è ruotare la credenziale.
 
-### 11.3 Struttura repo proposta
+### 12.3 Struttura repo proposta
 
 ```
 ai-messaging/
@@ -558,14 +581,14 @@ ai-messaging/
 └── README.md
 ```
 
-### 11.4 Da mettere nel README
+### 12.4 Da mettere nel README
 
 - Cos'è, in due righe.
 - **Il vincolo Tailscale in evidenza**: non è un dettaglio, è il modello di sicurezza. Va detto subito e chiaramente che il sistema *non va esposto* su internet e che non implementa autenticazione perché presuppone un perimetro di rete chiuso.
 - Setup: variabili d'ambiente, come ricavare il proprio indirizzo di tailnet.
 - I tool MCP esposti e i loro parametri.
 
-### 11.5 Packaging del bundle `.mcpb` — il `.venv` non si copia
+### 12.5 Packaging del bundle `.mcpb` — il `.venv` non si copia
 
 > **Problema reale (17 ago 2026).** Installando l'estensione su una seconda macchina, il client è morto con `exit code 103`: il `.venv` si trovava sotto la home dell'utente locale, ma il suo `pyvenv.cfg` puntava all'interprete base sotto la home di un utente *diverso* — quella della macchina su cui era stato *costruito*.
 
@@ -584,7 +607,7 @@ Il caso è garantito ogni volta che l'username del sistema operativo differisce 
 
 ---
 
-## 12. Prossimi passi
+## 13. Prossimi passi
 
 **Fatto in v0.4.0:** continuità dell'identità (§4.3), presenza (§8.2), `server_version` in ogni risposta.
 
@@ -594,7 +617,7 @@ Il caso è garantito ogni volta che l'username del sistema operativo differisce 
 
 - [ ] **Wipe-safe (§4.3):** gestire "ID inesistente sul server" → azzerare la cache e ri-registrarsi con la stessa `client_session_key`, senza loop di retry. Da fare **prima** del wipe pianificato.
 - [ ] **Completare il version check (§7):** il server già espone `server_version`; manca il confronto lato client e il `version_warning` nel payload, con i due livelli di gravità.
-- [ ] **Packaging (§11.5):** escludere `.venv` dal bundle `.mcpb` e dal repo.
+- [ ] **Packaging (§12.5):** escludere `.venv` dal bundle `.mcpb` e dal repo.
 
 **Poi:**
 

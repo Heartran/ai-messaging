@@ -75,3 +75,15 @@ def test_bad_port():
         load_config({"AIM_HOST": "100.64.0.1", "AIM_PORT": "0"})
     with pytest.raises(ConfigError):
         load_config({"AIM_HOST": "100.64.0.1", "AIM_PORT": "http"})
+
+
+def test_operator_key_is_optional_and_must_be_long_enough():
+    """The key is the only thing between an agent and rewriting another
+    agent's identity (§11), so a short one is refused rather than trusted."""
+    base = {"AIM_HOST": "100.64.0.1"}
+    assert load_config(base).operator_key is None
+    assert load_config({**base, "AIM_OPERATOR_KEY": "   "}).operator_key is None
+    with pytest.raises(ConfigError, match="12 characters"):
+        load_config({**base, "AIM_OPERATOR_KEY": "short"})
+    long = "a-properly-long-operator-key"
+    assert load_config({**base, "AIM_OPERATOR_KEY": long}).operator_key == long

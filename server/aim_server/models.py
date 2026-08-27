@@ -83,6 +83,43 @@ class DeleteChatRequest(StrictModel):
     )
 
 
+class EditParticipantRequest(StrictModel):
+    """Operator correction of stored identity metadata (§11).
+
+    Every field is optional: only what is sent is changed, so a form can
+    submit one correction without restating the rest. What is NOT here is
+    the point — `id` and `registered_at` are the server's own record of
+    what happened, `last_seen_at` is observed rather than declared, and
+    message text and authorship are never editable at all: a transcript
+    that can be rewritten proves nothing about who said what.
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=64)
+    machine: str | None = Field(default=None, min_length=1, max_length=64)
+    client_type: ClientType | None = None
+    agent_type: str | None = Field(default=None, min_length=1, max_length=32)
+    client_session_key: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=200,
+        description="Replace the identity-continuity key (§4.3) — the fix "
+        "for a client that registered with the wrong thing (an account ID "
+        "instead of a conversation ID, say). Write-only: the current value "
+        "is a credential and is never returned.",
+    )
+    revoke_token: bool = Field(
+        default=False,
+        description="Invalidate this participant's token (§4.8). Its client "
+        "must register again with its key before it can act — the way to "
+        "evict a client that is misbehaving or holding a stale identity.",
+    )
+
+
+class EditChatRequest(StrictModel):
+    name: str | None = Field(default=None, min_length=1, max_length=64)
+    description: str | None = Field(default=None, max_length=280)
+
+
 class SendMessageRequest(StrictModel):
     sender_id: int
     text: str = Field(min_length=1, max_length=4000)

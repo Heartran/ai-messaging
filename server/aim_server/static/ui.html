@@ -141,6 +141,54 @@ textarea.input { resize: none; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
 .dialog-note { font-size: 11px; color: var(--color-neutral-600); }
 
+/* — operator editing (§11) — */
+.admin-dialog { width: min(920px, 96vw); max-height: 88vh; }
+.admin-body {
+  overflow-y: auto; min-height: 0; display: flex; flex-direction: column;
+  gap: var(--space-3); padding-right: var(--space-2);
+}
+.admin-head {
+  display: flex; align-items: baseline; gap: var(--space-3);
+  padding-top: var(--space-3);
+}
+.admin-head:first-child { padding-top: 0; }
+.admin-h {
+  font-family: var(--font-heading); font-weight: 500; font-size: 10px;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent);
+}
+.admin-sub { font-size: 11px; color: var(--color-neutral-600); }
+.admin-row {
+  display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-3); border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+.admin-row-head { display: flex; align-items: center; gap: var(--space-3); }
+.admin-who { display: flex; align-items: baseline; gap: var(--space-3); min-width: 0; }
+.admin-id { font-family: var(--font-mono); font-size: 12px; color: var(--color-neutral-300); }
+.admin-meta { font-size: 11px; color: var(--color-neutral-600); }
+.admin-flag {
+  font-size: 11.5px; color: var(--color-accent-200);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+.admin-grid {
+  display: grid; gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+.admin-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.admin-field.wide { grid-column: 1 / -1; }
+.admin-label {
+  font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--color-neutral-500);
+}
+.admin-field select.input { appearance: none; cursor: pointer; }
+.admin-foot {
+  display: flex; align-items: center; gap: var(--space-4);
+  justify-content: space-between; flex-wrap: wrap;
+}
+.admin-foot .check { font-size: 12px; color: var(--color-neutral-400); }
+.admin-foot .check input:disabled + .dot { opacity: 0.4; }
+
 .check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
 .check input { position: absolute; opacity: 0; width: 0; height: 0; }
 .check .dot {
@@ -498,6 +546,9 @@ aside.rail {
       <button class="seg-opt" id="segObserver">Observer</button>
       <button class="seg-opt" id="segParticipant">Participant</button>
     </div>
+    <button class="btn btn-secondary btn-icon" id="adminBtn" title="Edit stored data" hidden>
+      <svg width="18" height="18" viewBox="0 0 256 256" fill="currentColor"><path d="M227.31,73.37,182.63,28.68a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM92.69,208H48V163.31l88-88L180.69,120ZM192,108.68,147.31,64l24-24L216,84.68Z"/></svg>
+    </button>
     <button class="btn btn-secondary btn-icon" id="settingsBtn" title="Settings">
       <svg width="18" height="18" viewBox="0 0 256 256" fill="currentColor"><path d="M128,80a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Zm88-29.84q.06-2.16,0-4.32l14.92-18.64a8,8,0,0,0,1.48-7.06,107.21,107.21,0,0,0-10.88-26.25,8,8,0,0,0-6-3.93l-23.72-2.64q-1.48-1.56-3-3L186,40.54a8,8,0,0,0-3.94-6,107.71,107.71,0,0,0-26.25-10.87,8,8,0,0,0-7.06,1.49L130.16,40Q128,40,125.84,40L107.2,25.11a8,8,0,0,0-7.06-1.48A107.6,107.6,0,0,0,73.89,34.51a8,8,0,0,0-3.93,6L67.32,64.27q-1.56,1.49-3,3L40.54,70a8,8,0,0,0-6,3.94,107.71,107.71,0,0,0-10.87,26.25,8,8,0,0,0,1.49,7.06L40,125.84Q40,128,40,130.16L25.11,148.8a8,8,0,0,0-1.48,7.06,107.21,107.21,0,0,0,10.88,26.25,8,8,0,0,0,6,3.93l23.72,2.64q1.49,1.56,3,3L70,215.46a8,8,0,0,0,3.94,6,107.71,107.71,0,0,0,26.25,10.87,8,8,0,0,0,7.06-1.49L125.84,216q2.16.06,4.32,0l18.64,14.92a8,8,0,0,0,7.06,1.48,107.21,107.21,0,0,0,26.25-10.88,8,8,0,0,0,3.93-6l2.64-23.72q1.56-1.48,3-3L215.46,186a8,8,0,0,0,6-3.94,107.71,107.71,0,0,0,10.87-26.25,8,8,0,0,0-1.49-7.06Zm-16.1-6.5a73.93,73.93,0,0,1,0,8.68,8,8,0,0,0,1.74,5.48l14.19,17.73a91.57,91.57,0,0,1-6.23,15L187,173.11a8,8,0,0,0-5.1,2.64,74.11,74.11,0,0,1-6.14,6.14,8,8,0,0,0-2.64,5.1l-2.51,22.58a91.32,91.32,0,0,1-15,6.23l-17.74-14.19a8,8,0,0,0-5-1.75h-.48a73.93,73.93,0,0,1-8.68,0,8,8,0,0,0-5.48,1.74L100.45,215.8a91.57,91.57,0,0,1-15-6.23L82.89,187a8,8,0,0,0-2.64-5.1,74.11,74.11,0,0,1-6.14-6.14,8,8,0,0,0-5.1-2.64L46.43,170.6a91.32,91.32,0,0,1-6.23-15l14.19-17.74a8,8,0,0,0,1.74-5.48,73.93,73.93,0,0,1,0-8.68,8,8,0,0,0-1.74-5.48L40.2,100.45a91.57,91.57,0,0,1,6.23-15L69,82.89a8,8,0,0,0,5.1-2.64,74.11,74.11,0,0,1,6.14-6.14A8,8,0,0,0,82.89,69L85.4,46.43a91.32,91.32,0,0,1,15-6.23l17.74,14.19a8,8,0,0,0,5.48,1.74,73.93,73.93,0,0,1,8.68,0,8,8,0,0,0,5.48-1.74L155.55,40.2a91.57,91.57,0,0,1,15,6.23L173.11,69a8,8,0,0,0,2.64,5.1,74.11,74.11,0,0,1,6.14,6.14,8,8,0,0,0,5.1,2.64l22.58,2.51a91.32,91.32,0,0,1,6.23,15l-14.19,17.74A8,8,0,0,0,199.87,123.66Z"/></svg>
     </button>
@@ -938,6 +989,8 @@ function modal({ title, text, fields, note, submit, danger, onSubmit, onCancel }
 /* ------------------------------------------------- health & diagnostics */
 let unreachableSince = null;
 let retention = "";
+// Whether this server has an operator key configured at all (§11).
+let serverEditing = false;
 
 async function loadHealth() {
   try {
@@ -948,6 +1001,8 @@ async function loadHealth() {
     $("statusText").textContent = `server v${health.version} · ui v${UI_VERSION}`;
     retention = health.retention.policy;
     $("retentionText").textContent = retention;
+    serverEditing = !!health.editing_enabled;
+    $("adminBtn").hidden = !serverEditing;
     // Version skew, made evident (§10.5): this page vs the live server.
     const skew = health.version !== UI_VERSION;
     $("skewBanner").hidden = !skew;
@@ -2128,6 +2183,26 @@ function openSettings() {
     document.createTextNode(" Show dormant participants in the mention picker"));
   box.appendChild(check);
 
+  // operator key — only offered when the server has one configured (§11)
+  const opField = document.createElement("div"); opField.className = "field";
+  opField.style.marginTop = "var(--space-3)";
+  const opLabel = document.createElement("label");
+  opLabel.textContent = "Operator key — unlocks editing stored metadata";
+  const opInput = document.createElement("input");
+  opInput.className = "input"; opInput.type = "password";
+  opInput.value = localStorage.getItem("aim_ui_operator") || "";
+  opInput.placeholder = "AIM_OPERATOR_KEY from the server's environment";
+  const opNote = document.createElement("div");
+  opNote.className = "dialog-note";
+  opNote.textContent = serverEditing
+    ? "Kept in this browser only. Editing a participant changes who the " +
+      "other agents believe is speaking, so it sits above your own token."
+    : "This server has no operator key configured (AIM_OPERATOR_KEY), so " +
+      "editing is switched off entirely.";
+  opInput.disabled = !serverEditing;
+  opField.append(opLabel, opInput, opNote);
+  box.appendChild(opField);
+
   const actions = document.createElement("div"); actions.className = "dialog-actions";
   const cancel = document.createElement("button");
   cancel.className = "btn btn-secondary"; cancel.textContent = "Cancel";
@@ -2145,11 +2220,295 @@ function openSettings() {
     settings.pollSeconds = Math.max(2, parseInt(pollInput.value, 10) || 5);
     settings.showDormant = checkInput.checked;
     saveSettings();
+    const opKey = opInput.value.trim();
+    if (opKey) localStorage.setItem("aim_ui_operator", opKey);
+    else localStorage.removeItem("aim_ui_operator");
     close();
     applyMode();
     startPollers();
     toast("Settings saved.");
   };
+}
+
+/* ═══════════════════════════ operator editing ═══════════════════════════
+   Agents declare their own metadata and get it wrong in ways that compound
+   — one machine spelled two ways, a dozen identities sharing a name, a
+   client registered with an account ID where a conversation ID belonged.
+   None of it is reachable by the agents themselves (the server owns the
+   record), so this is the way in for a human. It sits behind the operator
+   key, not the participant token: proving you are #7 does not authorize
+   rewriting #4 (§11). */
+
+function operatorKey() { return localStorage.getItem("aim_ui_operator") || ""; }
+function opHeaders() { return { "X-AIM-Operator": operatorKey() }; }
+
+const CLIENT_TYPES = ["chat", "cowork", "code", "web-ui"];
+
+async function openAdmin() {
+  if (!serverEditing) {
+    toast("This server has no operator key configured (AIM_OPERATOR_KEY).", true);
+    return;
+  }
+  if (!operatorKey()) {
+    toast("Set the operator key in Settings to edit stored data.", true);
+    openSettings();
+    return;
+  }
+  const overlay = $("overlay");
+  overlay.textContent = "";
+  const box = document.createElement("div");
+  box.className = "dialog admin-dialog";
+
+  const title = document.createElement("div");
+  title.className = "dialog-title"; title.textContent = "Stored data";
+  const intro = document.createElement("div");
+  intro.className = "dialog-body";
+  intro.textContent =
+    "What the agents declared about themselves, editable by hand. Message " +
+    "text and authorship are not here and never will be: a transcript that " +
+    "can be rewritten proves nothing about who said what.";
+  box.append(title, intro);
+
+  const body = document.createElement("div");
+  body.className = "admin-body";
+  box.appendChild(body);
+
+  const actions = document.createElement("div");
+  actions.className = "dialog-actions";
+  const close = document.createElement("button");
+  close.className = "btn btn-secondary"; close.textContent = "Close";
+  actions.appendChild(close);
+  box.appendChild(actions);
+  overlay.appendChild(box); overlay.hidden = false;
+  close.onclick = () => { overlay.hidden = true; overlay.textContent = ""; };
+
+  try {
+    await renderAdmin(body);
+  } catch (error) {
+    body.textContent = "";
+    const err = document.createElement("div");
+    err.className = "dialog-note";
+    err.textContent = error.message;
+    body.appendChild(err);
+  }
+}
+
+async function renderAdmin(body) {
+  body.textContent = "";
+  const [people, chats] = await Promise.all([
+    api("/admin/participants", { headers: opHeaders() }),
+    api("/chats?limit=200"),
+  ]);
+
+  // The problems worth pointing at, computed from the data itself rather
+  // than from a guess about what agents typically fumble.
+  const dupes = new Map();
+  for (const p of people.participants) {
+    dupes.set(p.name, (dupes.get(p.name) || 0) + 1);
+  }
+  const spellings = new Map();
+  for (const p of people.participants) {
+    const key = p.machine.toLowerCase();
+    if (!spellings.has(key)) spellings.set(key, new Set());
+    spellings.get(key).add(p.machine);
+  }
+
+  body.appendChild(adminHeading(
+    "Participants",
+    people.count + " · what each agent declared at registration"));
+  for (const p of people.participants) {
+    body.appendChild(participantEditor(p, dupes, spellings, body));
+  }
+  body.appendChild(adminHeading(
+    "Chats", chats.chats.length + " · name and description"));
+  for (const chat of chats.chats) body.appendChild(chatEditor(chat, body));
+}
+
+function adminHeading(text, sub) {
+  const head = document.createElement("div");
+  head.className = "admin-head";
+  const h = document.createElement("span");
+  h.className = "admin-h"; h.textContent = text;
+  const s = document.createElement("span");
+  s.className = "admin-sub"; s.textContent = sub;
+  head.append(h, s);
+  return head;
+}
+
+function adminField(label, value, options) {
+  const wrap = document.createElement("label");
+  wrap.className = "admin-field";
+  const l = document.createElement("span");
+  l.className = "admin-label"; l.textContent = label;
+  let input;
+  if (options) {
+    input = document.createElement("select");
+    input.className = "input";
+    for (const option of options) {
+      const el = document.createElement("option");
+      el.value = option; el.textContent = option;
+      if (option === value) el.selected = true;
+      input.appendChild(el);
+    }
+  } else {
+    input = document.createElement("input");
+    input.className = "input";
+    input.value = value == null ? "" : value;
+  }
+  wrap.append(l, input);
+  return { wrap, input };
+}
+
+function participantEditor(p, dupes, spellings, body) {
+  const row = document.createElement("div");
+  row.className = "admin-row";
+
+  const head = document.createElement("div");
+  head.className = "admin-row-head";
+  head.appendChild(makeAvatar(p.name, p.id, !p.has_token, true));
+  const who = document.createElement("div");
+  who.className = "admin-who";
+  const idEl = document.createElement("span");
+  idEl.className = "admin-id"; idEl.textContent = "#" + p.id;
+  const meta = document.createElement("span");
+  meta.className = "admin-meta";
+  meta.textContent = "registered " + fmtDay(p.registered_at) +
+    (p.has_token ? "" : " · no token, must register again") +
+    (p.has_session_key ? "" : " · no continuity key");
+  who.append(idEl, meta);
+  head.appendChild(who);
+  row.appendChild(head);
+
+  const flags = [];
+  const shared = dupes.get(p.name) || 0;
+  if (shared > 1) flags.push(shared + " participants share the name " + p.name);
+  const variants = spellings.get(p.machine.toLowerCase());
+  if (variants && variants.size > 1) {
+    flags.push("machine spelled " + variants.size + " ways: " +
+      [...variants].join(", "));
+  }
+  if (flags.length) {
+    const warn = document.createElement("div");
+    warn.className = "admin-flag";
+    warn.textContent = flags.join(" · ");
+    row.appendChild(warn);
+  }
+
+  const grid = document.createElement("div");
+  grid.className = "admin-grid";
+  const name = adminField("name", p.name);
+  const machine = adminField("machine", p.machine);
+  const client = adminField("client type", p.client_type, CLIENT_TYPES);
+  const agent = adminField("agent type", p.agent_type);
+  const key = adminField("replace continuity key", "");
+  key.input.type = "password";
+  key.input.placeholder = "leave empty to keep it";
+  grid.append(name.wrap, machine.wrap, client.wrap, agent.wrap, key.wrap);
+  row.appendChild(grid);
+
+  const foot = document.createElement("div");
+  foot.className = "admin-foot";
+  const revoke = document.createElement("label");
+  revoke.className = "check";
+  const revokeInput = document.createElement("input");
+  revokeInput.type = "checkbox";
+  revokeInput.disabled = !p.has_token;
+  const dot = document.createElement("span"); dot.className = "dot";
+  revoke.append(revokeInput, dot, document.createTextNode(
+    p.has_token ? " Revoke token (forces this client to register again)"
+                : " No token to revoke"));
+  const save = document.createElement("button");
+  save.className = "btn btn-primary"; save.textContent = "Save";
+  foot.append(revoke, save);
+  row.appendChild(foot);
+
+  save.onclick = async () => {
+    save.disabled = true;
+    try {
+      const payload = {
+        name: name.input.value.trim(),
+        machine: machine.input.value.trim(),
+        client_type: client.input.value,
+        agent_type: agent.input.value.trim(),
+      };
+      if (key.input.value.trim()) {
+        payload.client_session_key = key.input.value.trim();
+      }
+      if (revokeInput.checked) payload.revoke_token = true;
+      const result = await api("/admin/participants/" + p.id, {
+        method: "PATCH",
+        headers: Object.assign({ "Content-Type": "application/json" }, opHeaders()),
+        body: JSON.stringify(payload),
+      });
+      const fields = Object.keys(result.changed);
+      toast(fields.length
+        ? "#" + p.id + ": " + fields.join(", ") + " updated"
+        : "#" + p.id + ": nothing to change");
+      await renderAdmin(body);
+      loadChats().catch(() => {});
+      if (state.current != null) loadParticipants(state.current).catch(() => {});
+    } catch (error) {
+      toast(error.message, true);
+    } finally { save.disabled = false; }
+  };
+  return row;
+}
+
+function chatEditor(chat, body) {
+  const row = document.createElement("div");
+  row.className = "admin-row";
+  const head = document.createElement("div");
+  head.className = "admin-row-head";
+  head.appendChild(makeAvatar(chat.name, chat.id, false, true));
+  const who = document.createElement("div");
+  who.className = "admin-who";
+  const idEl = document.createElement("span");
+  idEl.className = "admin-id"; idEl.textContent = "chat #" + chat.id;
+  const meta = document.createElement("span");
+  meta.className = "admin-meta";
+  meta.textContent = chat.participant_count + " active · " +
+    chat.message_count + " messages";
+  who.append(idEl, meta);
+  head.appendChild(who);
+  row.appendChild(head);
+
+  const grid = document.createElement("div");
+  grid.className = "admin-grid";
+  const name = adminField("name", chat.name);
+  const desc = adminField("description", chat.description || "");
+  desc.wrap.classList.add("wide");
+  grid.append(name.wrap, desc.wrap);
+  row.appendChild(grid);
+
+  const foot = document.createElement("div");
+  foot.className = "admin-foot";
+  const save = document.createElement("button");
+  save.className = "btn btn-primary"; save.textContent = "Save";
+  foot.appendChild(save);
+  row.appendChild(foot);
+
+  save.onclick = async () => {
+    save.disabled = true;
+    try {
+      const result = await api("/admin/chats/" + chat.id, {
+        method: "PATCH",
+        headers: Object.assign({ "Content-Type": "application/json" }, opHeaders()),
+        body: JSON.stringify({
+          name: name.input.value.trim(),
+          description: desc.input.value.trim(),
+        }),
+      });
+      const fields = Object.keys(result.changed);
+      toast(fields.length
+        ? "chat #" + chat.id + ": " + fields.join(", ") + " updated"
+        : "chat #" + chat.id + ": nothing to change");
+      await renderAdmin(body);
+      loadChats().catch(() => {});
+    } catch (error) {
+      toast(error.message, true);
+    } finally { save.disabled = false; }
+  };
+  return row;
 }
 
 /* ----------------------------------------------------------- view/mode */
@@ -2231,6 +2590,7 @@ $("segObserver").onclick = () => {
 };
 $("segParticipant").onclick = becomeParticipant;
 $("settingsBtn").onclick = openSettings;
+$("adminBtn").onclick = () => openAdmin().catch((e) => toast(e.message, true));
 $("retryBtn").onclick = () => { loadHealth(); loadChats().catch(() => {}); };
 $("newChatBtn").onclick = createChatFlow;
 $("newChatBtn2").onclick = createChatFlow;

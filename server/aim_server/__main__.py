@@ -27,7 +27,11 @@ def run() -> int:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 2
 
-    app = create_app(config.db_path, retention_days=config.retention_days)
+    app = create_app(
+        config.db_path,
+        retention_days=config.retention_days,
+        operator_key=config.operator_key,
+    )
     logging.getLogger("aim_server").info(
         "binding on %s:%d (tailnet-only), db=%s, retention=%s",
         config.host,
