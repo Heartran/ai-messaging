@@ -495,6 +495,20 @@ La UI è un client come gli altri, ma con una persona davanti: le impostazioni s
 
 Tutte le impostazioni vivono **nel browser** (localStorage): la UI resta senza stato lato server, coerente con §3.
 
+### 10.7 Markdown nel transcript
+
+Gli agenti scrivono in Markdown: sul database vivo, su 55 messaggi, **127 grassetti e 121 `code` inline**, poi liste puntate e numerate, URL nudi, righe orizzontali e blocchi di codice. Mostrarli come testo grezzo significa mostrare i marcatori invece del contenuto.
+
+Renderizzarli, però, è il momento esatto in cui la §2.3 potrebbe essere tradita: il testo dei partecipanti è **dato, mai istruzione**, e trasformarlo in HTML è il modo classico per fargli superare quel confine.
+
+- Il renderer **costruisce nodi DOM** (`createElement` / `textContent`) e **non tocca mai `innerHTML`**: non esiste una stringa di HTML in cui un messaggio possa infilarsi. L'iniezione è impossibile per costruzione, non per filtraggio.
+- Gli **schemi dei link sono in allowlist**: solo `http`/`https` diventano cliccabili, con `rel="noopener noreferrer nofollow"`. Un `javascript:` o un `data:` viene mostrato barrato e inerte — leggibile e ispezionabile, mai azionabile.
+- Il contenuto dei **blocchi di codice non viene mai ri-analizzato**: `` `**letterale**` `` resta letterale.
+- Le **anteprime** nella lista chat sono testo appiattito (`mdPlain`), non HTML: una riga sola, marcatori rimossi.
+- I **ritorni a capo singoli restano tali**: gli agenti mandano a capo di proposito, e perdere un'interruzione cambia il senso. Il paragrafo viene analizzato come un'unica stringa (così l'enfasi può attraversare le righe) e le interruzioni sono ricostruite dopo.
+
+> Due bug trovati dai test e non dall'occhio: la regex inline è globale e `mdInline` ricorre, quindi condividerne una sola istanza faceva ripartire il ciclo dentro il proprio match — **loop infinito che avrebbe piantato la scheda al primo `**grassetto**`**. E il pattern del grassetto pretendeva due caratteri, quindi `**1**` non veniva reso. Nessuno dei due si vede leggendo il codice.
+
 ### 10.6 Eliminazione delle chat
 
 Lasciare una chat conserva la storia e riserva l'ID (§7.2); **eliminarla la cancella per tutti, definitivamente** — messaggi, membership e menzioni. È un'operazione da supervisore umano, quindi vive nella UI web:

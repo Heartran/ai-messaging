@@ -261,7 +261,85 @@ aside.rail {
 .mprov { font-family: var(--font-mono); font-size: 11px; color: var(--color-neutral-500); }
 .mtime { margin-left: auto; font-size: 11px; color: var(--color-neutral-600); }
 .mtags { display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
-.mtext { font-size: 14px; line-height: 1.55; margin-top: 3px; white-space: pre-wrap; overflow-wrap: break-word; }
+.mtext { font-size: 14px; line-height: 1.55; margin-top: 3px; overflow-wrap: break-word; }
+
+/* — rendered markdown —
+   Tuned for a transcript: blocks are tight enough that a three-line
+   message still reads as one utterance, and only loosen when the agent
+   actually structured something. */
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md-p { margin: 0 0 var(--space-3); }
+.md-h {
+  font-family: var(--font-heading); font-weight: 500; line-height: 1.25;
+  letter-spacing: -0.01em; margin: var(--space-4) 0 var(--space-2);
+}
+.md-h1 { font-size: 17px; }
+.md-h2 { font-size: 15.5px; }
+.md-h3 { font-size: 14.5px; color: var(--color-neutral-200); }
+.md-h4 {
+  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--color-accent);
+}
+.md-hr { margin: var(--space-4) 0; }
+.md-list { margin: 0 0 var(--space-3); padding-left: 1.35em; }
+.md-list .md-list { margin: var(--space-1) 0 0; }
+.md-list li { margin: 2px 0; }
+.md-list li::marker { color: var(--color-neutral-500); }
+.md-quote {
+  margin: 0 0 var(--space-3); padding: 2px 0 2px var(--space-3);
+  border-left: 2px solid var(--color-accent-700); color: var(--color-neutral-300);
+}
+.md-code {
+  font-family: var(--font-mono); font-size: 0.88em;
+  padding: 1px 5px; border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-text) 9%, transparent);
+  overflow-wrap: anywhere;
+}
+.md-pre {
+  position: relative; margin: 0 0 var(--space-3); padding: var(--space-3);
+  border-radius: var(--radius-md); overflow-x: auto;
+  background: color-mix(in srgb, var(--color-neutral-900) 60%, transparent);
+  box-shadow: inset 0 0 0 1px var(--color-divider);
+}
+.md-pre code {
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5;
+  white-space: pre; color: var(--color-neutral-200);
+}
+.md-lang {
+  position: absolute; top: 6px; right: 9px; font-size: 10px;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-neutral-600);
+}
+.md-table-wrap { overflow-x: auto; margin: 0 0 var(--space-3); }
+.md-table { border-collapse: collapse; font-size: 13px; }
+.md-table th {
+  text-align: left; font-size: 10.5px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--color-neutral-500);
+  padding: var(--space-2) var(--space-3); white-space: nowrap;
+}
+.md-table td {
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-neutral-200); vertical-align: top;
+}
+.md-table thead tr {
+  background: linear-gradient(to right, var(--color-divider), transparent 92%)
+    no-repeat bottom / 100% 1px;
+}
+.md-table tbody tr {
+  background: linear-gradient(to right,
+    color-mix(in srgb, var(--color-text) 8%, transparent), transparent 92%)
+    no-repeat bottom / 100% 1px;
+}
+.md strong { font-weight: 600; color: var(--color-neutral-100); }
+.md em { font-style: italic; }
+.md del { color: var(--color-neutral-500); }
+.md a { color: var(--color-accent); text-underline-offset: 3px; }
+.md a:hover { color: var(--color-accent-300); }
+/* A link this UI refuses to open (§2.3): readable, inspectable, inert. */
+.md-deadlink {
+  color: var(--color-neutral-400); text-decoration: line-through;
+  text-decoration-color: var(--color-neutral-600); cursor: help;
+}
 .mtext.mine { color: var(--color-neutral-200); border-left: 2px solid var(--color-accent-700); padding-left: var(--space-3); }
 .intro-card {
   margin-top: var(--space-2); padding: var(--space-3); border-radius: var(--radius-md);
@@ -269,7 +347,7 @@ aside.rail {
   box-shadow: inset 0 0 0 1px var(--color-accent-800);
 }
 .intro-card .k { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); }
-.intro-card .t { font-size: 14px; line-height: 1.55; margin-top: var(--space-2); white-space: pre-wrap; overflow-wrap: break-word; }
+.intro-card .t { font-size: 14px; line-height: 1.55; margin-top: var(--space-2); overflow-wrap: break-word; }
 .intro-rows {
   display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-4);
   margin-top: var(--space-3); padding-top: var(--space-3); font-size: 13px;
@@ -981,7 +1059,8 @@ function renderChatList() {
       prev.className = "ci-prev";
       const sender = document.createElement("b");
       sender.textContent = chat.last_message.sender.name + ": ";
-      prev.append(sender, document.createTextNode(chat.last_message.text));
+      // The preview is one line: Markdown is flattened, never rendered.
+      prev.append(sender, document.createTextNode(mdPlain(chat.last_message.text)));
     } else {
       prev.className = "ci-prev none";
       prev.textContent = chat.description || "No messages yet";
@@ -1086,7 +1165,8 @@ function inboxFiltered() {
     if (state.focus === "intros" && !m.is_introduction) return false;
     if (state.focus === "mine" &&
         !(state.me && m.sender.id === state.me.participant_id)) return false;
-    if (query && !m.text.toLowerCase().includes(query) &&
+    if (query && !mdPlain(m.text).toLowerCase().includes(query) &&
+        !m.text.toLowerCase().includes(query) &&
         !m.sender.name.toLowerCase().includes(query)) return false;
     return true;
   });
@@ -1305,6 +1385,296 @@ function participantRow(p, { compact } = {}) {
   return row;
 }
 
+/* ══════════════════════════════ markdown ══════════════════════════════
+   Agents write Markdown, so the transcript renders it. But §2.3 is the
+   whole security model of this product: participant-written text is DATA,
+   never something the client acts on. Rendering it as HTML is exactly the
+   moment that promise could be broken, so this renderer builds DOM nodes
+   and never touches innerHTML — there is no HTML string anywhere for a
+   message to slip into, which makes injection impossible by construction
+   rather than by filtering. Link schemes are allow-listed for the same
+   reason: a "javascript:" href is shown as text and is not clickable.
+   ══════════════════════════════════════════════════════════════════════ */
+
+const MD_SAFE_HREF = /^https?:\/\/[^\s]+$/i;
+
+function mdLink(href, label) {
+  if (!MD_SAFE_HREF.test(href)) {
+    // Any other scheme (javascript:, data:, file:, …) is rendered as
+    // inert text: visible, inspectable, never actionable.
+    const dead = document.createElement("span");
+    dead.className = "md-deadlink";
+    dead.textContent = label;
+    dead.title = "Link not opened: only http and https are followed from here.";
+    return dead;
+  }
+  const a = document.createElement("a");
+  a.textContent = label;
+  a.href = href;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer nofollow";
+  return a;
+}
+
+// Ordered by precedence. Code comes first so its contents are never
+// re-parsed: `**not bold**` inside backticks must stay literal.
+// Built fresh on every call, never shared: this pattern is global (/g)
+// and mdInline recurses for nested emphasis. One shared lastIndex would
+// make the outer loop resume inside its own match — an infinite loop
+// that hangs the tab on the first `**bold**`.
+const MD_INLINE_SRC = [
+  "(`+)([\\s\\S]+?)\\1",                            // 1,2 code span
+  "\\[([^\\]\\n]+)\\]\\(\\s*([^)\\s]+)[^)]*\\)",    // 3,4 link
+  "(\\*\\*|__)(?=\\S)([\\s\\S]*?\\S)\\5",           // 5,6 bold (**x** counts)
+  "(?<![\\w*])\\*(?=\\S)([^*\\n]+?)\\*(?![\\w*])",  // 7 italic
+  "(?<![\\w_])_(?=\\S)([^_\\n]+?)_(?![\\w_])",      // 8 italic, word-bounded
+  "~~(?=\\S)([\\s\\S]+?)~~",                        // 9 strikethrough
+  "(https?:\\/\\/[^\\s<>()\\[\\]]*[^\\s<>()\\[\\].,;:!?])", // 10 bare URL
+].join("|");
+
+/* Plain text into `nodes`, with newlines kept as real breaks. Agents
+   hard-wrap deliberately — a dropped line break changes the sense — so a
+   paragraph is parsed as ONE string (emphasis may span lines) and the
+   breaks are rebuilt here rather than by splitting the input. */
+function mdText(nodes, text) {
+  const parts = text.split("\n");
+  parts.forEach((part, index) => {
+    if (index) nodes.push(document.createElement("br"));
+    if (part) nodes.push(document.createTextNode(part));
+  });
+}
+
+function mdInline(text) {
+  const nodes = [];
+  const re = new RegExp(MD_INLINE_SRC, "g");
+  let last = 0, m;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) {
+      mdText(nodes, text.slice(last, m.index));
+    }
+    if (m[2] !== undefined) {
+      const el = document.createElement("code");
+      el.className = "md-code";
+      el.textContent = m[2].replace(/^ ([\s\S]*) $/, "$1");
+      nodes.push(el);
+    } else if (m[3] !== undefined) {
+      nodes.push(mdLink(m[4], m[3]));
+    } else if (m[6] !== undefined) {
+      const el = document.createElement("strong");
+      mdInline(m[6]).forEach((n) => el.appendChild(n));
+      nodes.push(el);
+    } else if (m[7] !== undefined || m[8] !== undefined) {
+      const el = document.createElement("em");
+      mdInline(m[7] !== undefined ? m[7] : m[8]).forEach((n) => el.appendChild(n));
+      nodes.push(el);
+    } else if (m[9] !== undefined) {
+      const el = document.createElement("del");
+      mdInline(m[9]).forEach((n) => el.appendChild(n));
+      nodes.push(el);
+    } else if (m[10] !== undefined) {
+      nodes.push(mdLink(m[10], m[10]));
+    }
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) mdText(nodes, text.slice(last));
+  return nodes;
+}
+
+const MD_FENCE = /^\s*(```+|~~~+)\s*([\w+#.-]*)\s*$/;
+const MD_HEADING = /^(#{1,6})\s+(.*\S)\s*#*\s*$/;
+const MD_RULE = /^\s*([-*_])[ \t]*(?:\1[ \t]*){2,}$/;
+const MD_QUOTE = /^\s*>\s?(.*)$/;
+const MD_ITEM = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
+const MD_TABLE_SEP = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/;
+
+function mdCells(line) {
+  return line.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|")
+    .map((cell) => cell.trim());
+}
+
+function mdIsBlockStart(line) {
+  return MD_FENCE.test(line) || MD_HEADING.test(line) || MD_RULE.test(line) ||
+    MD_QUOTE.test(line) || MD_ITEM.test(line) || !line.trim();
+}
+
+/** Render `text` as Markdown into `container`; returns the container. */
+function renderMarkdown(text, container) {
+  const lines = String(text == null ? "" : text)
+    .replace(/\r\n?/g, "\n").split("\n");
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i++; continue; }
+
+    // ---- fenced code: verbatim, never parsed, never re-interpreted ----
+    const fence = MD_FENCE.exec(line);
+    if (fence) {
+      const marker = fence[1][0];
+      const body = [];
+      i++;
+      while (i < lines.length &&
+             !(lines[i].trimStart().startsWith(marker.repeat(3)) &&
+               MD_FENCE.test(lines[i]))) {
+        body.push(lines[i]); i++;
+      }
+      i++; // closing fence; an unclosed one still renders what it opened
+      const pre = document.createElement("pre");
+      pre.className = "md-pre";
+      if (fence[2]) {
+        const lang = document.createElement("span");
+        lang.className = "md-lang";
+        lang.textContent = fence[2];
+        pre.appendChild(lang);
+      }
+      const code = document.createElement("code");
+      code.textContent = body.join("\n");
+      pre.appendChild(code);
+      container.appendChild(pre);
+      continue;
+    }
+
+    // ---- heading ----
+    const heading = MD_HEADING.exec(line);
+    if (heading) {
+      const el = document.createElement("div");
+      el.className = "md-h md-h" + Math.min(heading[1].length, 4);
+      mdInline(heading[2]).forEach((n) => el.appendChild(n));
+      container.appendChild(el);
+      i++; continue;
+    }
+
+    // ---- horizontal rule: the Nocturne fading rule, not a hard line ----
+    if (MD_RULE.test(line)) {
+      const hr = document.createElement("div");
+      hr.className = "frule md-hr";
+      container.appendChild(hr);
+      i++; continue;
+    }
+
+    // ---- table ----
+    if (line.includes("|") && i + 1 < lines.length &&
+        MD_TABLE_SEP.test(lines[i + 1])) {
+      const table = document.createElement("table");
+      table.className = "md-table";
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      for (const cell of mdCells(line)) {
+        const th = document.createElement("th");
+        mdInline(cell).forEach((n) => th.appendChild(n));
+        headRow.appendChild(th);
+      }
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      i += 2;
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
+        const tr = document.createElement("tr");
+        for (const cell of mdCells(lines[i])) {
+          const td = document.createElement("td");
+          mdInline(cell).forEach((n) => td.appendChild(n));
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr); i++;
+      }
+      table.appendChild(tbody);
+      // Wide tables scroll inside themselves; the transcript never does.
+      const scroller = document.createElement("div");
+      scroller.className = "md-table-wrap";
+      scroller.appendChild(table);
+      container.appendChild(scroller);
+      continue;
+    }
+
+    // ---- blockquote ----
+    if (MD_QUOTE.test(line)) {
+      const body = [];
+      while (i < lines.length && MD_QUOTE.test(lines[i])) {
+        body.push(MD_QUOTE.exec(lines[i])[1]); i++;
+      }
+      const el = document.createElement("blockquote");
+      el.className = "md-quote";
+      renderMarkdown(body.join("\n"), el);
+      container.appendChild(el);
+      continue;
+    }
+
+    // ---- lists, with one level of nesting by indentation ----
+    const item = MD_ITEM.exec(line);
+    if (item) {
+      const ordered = /\d/.test(item[2]);
+      const list = document.createElement(ordered ? "ol" : "ul");
+      list.className = "md-list";
+      if (ordered) {
+        const start = parseInt(item[2], 10);
+        if (start !== 1) list.start = start;
+      }
+      const baseIndent = item[1].length;
+      let current = null, sublist = null;
+      while (i < lines.length) {
+        const row = MD_ITEM.exec(lines[i]);
+        if (row) {
+          const rowOrdered = /\d/.test(row[2]);
+          if (row[1].length > baseIndent + 1 && current) {
+            if (!sublist || sublist.tagName !== (rowOrdered ? "OL" : "UL")) {
+              sublist = document.createElement(rowOrdered ? "ol" : "ul");
+              sublist.className = "md-list";
+              current.appendChild(sublist);
+            }
+            const sub = document.createElement("li");
+            mdInline(row[3]).forEach((n) => sub.appendChild(n));
+            sublist.appendChild(sub);
+            i++; continue;
+          }
+          if (rowOrdered !== ordered) break; // a different kind of list
+          current = document.createElement("li");
+          sublist = null;
+          mdInline(row[3]).forEach((n) => current.appendChild(n));
+          list.appendChild(current);
+          i++; continue;
+        }
+        // an indented plain line continues the item above it
+        if (current && lines[i].trim() && /^\s{2,}/.test(lines[i])) {
+          current.appendChild(document.createTextNode(" "));
+          mdInline(lines[i].trim()).forEach((n) => current.appendChild(n));
+          i++; continue;
+        }
+        break;
+      }
+      container.appendChild(list);
+      continue;
+    }
+
+    // ---- paragraph: parsed as one string so emphasis may span lines;
+    //      mdText rebuilds the single newlines as real breaks ----
+    const para = [];
+    while (i < lines.length && lines[i].trim() && !mdIsBlockStart(lines[i])) {
+      para.push(lines[i]); i++;
+    }
+    if (!para.length) { para.push(lines[i]); i++; }
+    const p = document.createElement("p");
+    p.className = "md-p";
+    mdInline(para.join("\n")).forEach((n) => p.appendChild(n));
+    container.appendChild(p);
+  }
+  return container;
+}
+
+/** Markdown flattened to one readable line — for the list previews. */
+function mdPlain(text) {
+  return String(text == null ? "" : text)
+    .replace(/```[\s\S]*?(```|$)/g, " ")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/^\s*#{1,6}\s+/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/^\s*([-*+]|\d{1,9}[.)])\s+/gm, "")
+    .replace(/\[([^\]\n]+)\]\([^)\n]*\)/g, "$1")
+    .replace(/(\*\*|__|~~)(.+?)\1/g, "$2")
+    .replace(/(?<![\w*])\*(?=\S)([^*\n]+?)\*(?![\w*])/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /* ------------------------------------------------------------ messages */
 function renderMessageRow(message, { chatTag } = {}) {
   const row = document.createElement("div");
@@ -1343,7 +1713,8 @@ function renderMessageRow(message, { chatTag } = {}) {
   if (message.is_introduction) {
     const card = document.createElement("div"); card.className = "intro-card";
     const k = document.createElement("div"); k.className = "k"; k.textContent = "Introduction";
-    const t = document.createElement("div"); t.className = "t"; t.textContent = message.text;
+    const t = document.createElement("div"); t.className = "t md";
+    renderMarkdown(message.text, t);
     card.append(k, t);
     if (message.intro_payload) {
       const rows = document.createElement("div"); rows.className = "intro-rows";
@@ -1360,8 +1731,8 @@ function renderMessageRow(message, { chatTag } = {}) {
   } else {
     const text = document.createElement("div");
     const mine = state.me && message.sender.id === state.me.participant_id;
-    text.className = "mtext" + (mine ? " mine" : "");
-    text.textContent = message.text;
+    text.className = "mtext md" + (mine ? " mine" : "");
+    renderMarkdown(message.text, text);
     body.appendChild(text);
   }
 
