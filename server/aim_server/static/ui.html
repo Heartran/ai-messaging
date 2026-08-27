@@ -181,7 +181,6 @@ textarea.input { resize: none; }
   font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--color-neutral-500);
 }
-.admin-field select.input { appearance: none; cursor: pointer; }
 .admin-foot {
   display: flex; align-items: center; gap: var(--space-4);
   justify-content: space-between; flex-wrap: wrap;
@@ -2242,7 +2241,14 @@ function openSettings() {
 function operatorKey() { return localStorage.getItem("aim_ui_operator") || ""; }
 function opHeaders() { return { "X-AIM-Operator": operatorKey() }; }
 
+// Conventional values, offered as suggestions and never as a constraint.
+// The live set is merged in from whatever the agents actually declared.
 const CLIENT_TYPES = ["chat", "cowork", "code", "web-ui"];
+function suggestionsFor(participants, field, conventional) {
+  const seen = new Set(conventional);
+  for (const p of participants) if (p[field]) seen.add(p[field]);
+  return [...seen].sort();
+}
 
 async function openAdmin() {
   if (!serverEditing) {
@@ -2316,8 +2322,14 @@ async function renderAdmin(body) {
   body.appendChild(adminHeading(
     "Participants",
     people.count + " · what each agent declared at registration"));
+  const suggest = {
+    client_type: suggestionsFor(people.participants, "client_type", CLIENT_TYPES),
+    agent_type: suggestionsFor(people.participants, "agent_type",
+      ["claude", "chatgpt", "gemini", "codex", "human"]),
+    machine: suggestionsFor(people.participants, "machine", []),
+  };
   for (const p of people.participants) {
-    body.appendChild(participantEditor(p, dupes, spellings, body));
+    body.appendChild(participantEditor(p, dupes, spellings, body, suggest));
   }
   body.appendChild(adminHeading(
     "Chats", chats.chats.length + " · name and description"));
@@ -2340,26 +2352,30 @@ function adminField(label, value, options) {
   wrap.className = "admin-field";
   const l = document.createElement("span");
   l.className = "admin-label"; l.textContent = label;
-  let input;
-  if (options) {
-    input = document.createElement("select");
-    input.className = "input";
+  const input = document.createElement("input");
+  input.className = "input";
+  input.value = value == null ? "" : value;
+  if (options && options.length) {
+    // Free text with suggestions, not a closed list (§4.6): the vocabulary
+    // is conventional, so the field must accept a value nobody has used
+    // yet — while still making the common ones a click away, which is what
+    // keeps "chatt" from happening in the first place.
+    const id = "dl-" + label.replace(/\W+/g, "-") + "-" + (adminField.seq = (adminField.seq || 0) + 1);
+    const list = document.createElement("datalist");
+    list.id = id;
     for (const option of options) {
       const el = document.createElement("option");
-      el.value = option; el.textContent = option;
-      if (option === value) el.selected = true;
-      input.appendChild(el);
+      el.value = option;
+      list.appendChild(el);
     }
-  } else {
-    input = document.createElement("input");
-    input.className = "input";
-    input.value = value == null ? "" : value;
+    input.setAttribute("list", id);
+    wrap.appendChild(list);
   }
   wrap.append(l, input);
   return { wrap, input };
 }
 
-function participantEditor(p, dupes, spellings, body) {
+function participantEditor(p, dupes, spellings, body, suggest) {
   const row = document.createElement("div");
   row.className = "admin-row";
 
@@ -2397,9 +2413,9 @@ function participantEditor(p, dupes, spellings, body) {
   const grid = document.createElement("div");
   grid.className = "admin-grid";
   const name = adminField("name", p.name);
-  const machine = adminField("machine", p.machine);
-  const client = adminField("client type", p.client_type, CLIENT_TYPES);
-  const agent = adminField("agent type", p.agent_type);
+  const machine = adminField("machine", p.machine, suggest.machine);
+  const client = adminField("client type", p.client_type, suggest.client_type);
+  const agent = adminField("agent type", p.agent_type, suggest.agent_type);
   const key = adminField("replace continuity key", "");
   key.input.type = "password";
   key.input.placeholder = "leave empty to keep it";

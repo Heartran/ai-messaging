@@ -102,17 +102,34 @@ def test_same_machine_two_registrations_two_ids(client):
     assert a["participant_id"] != b["participant_id"]
 
 
-def test_register_rejects_unknown_client_type(client):
+def test_client_type_is_free_text(client):
+    """§4.6: the four conventional values stopped describing the products
+    — the same agent registered once as 'code' and once as 'chat' because
+    neither fitted. Nothing branches on this field, so it is provenance to
+    read, not a vocabulary to police."""
     response = client.post(
         "/register",
         json={
-            "name": "X",
-            "machine": "M",
-            "client_type": "browser",
+            "name": "Nova",
+            "machine": "OMEN",
+            "client_type": "openclaw",
             "agent_type": "claude",
         },
     )
-    assert response.status_code == 422
+    assert response.status_code == 201
+    assert response.json()["client_type"] == "openclaw"
+
+
+def test_client_type_still_has_to_be_a_short_string(client):
+    """Free text is not "anything": the field is still bounded, so it
+    cannot become a place to stash a payload."""
+    for bad in ("", "x" * 33):
+        response = client.post(
+            "/register",
+            json={"name": "X", "machine": "M", "client_type": bad,
+                  "agent_type": "claude"},
+        )
+        assert response.status_code == 422, bad
 
 
 # ------------------------------------------------------- identity continuity
@@ -443,11 +460,15 @@ def test_the_server_owned_record_is_not_editable(admin):
         assert response.status_code == 422, forbidden
 
 
-def test_client_type_is_still_validated_when_edited(admin):
+def test_client_type_can_be_edited_to_anything_short(admin):
     pid = register(admin)["participant_id"]
-    response = admin.patch(f"/admin/participants/{pid}",
-                           json={"client_type": "browser"}, headers=op())
-    assert response.status_code == 422
+    ok = admin.patch(f"/admin/participants/{pid}",
+                     json={"client_type": "antigravity"}, headers=op())
+    assert ok.status_code == 200
+    assert ok.json()["participant"]["client_type"] == "antigravity"
+    too_long = admin.patch(f"/admin/participants/{pid}",
+                           json={"client_type": "x" * 33}, headers=op())
+    assert too_long.status_code == 422
 
 
 def test_replacing_a_session_key_never_reveals_it(admin):
@@ -609,6 +630,88 @@ def test_presence_tracks_activity_and_marks_dormant(client, tmp_path):
 
 
 # --------------------------------------------------------------- migration
+
+def test_v2_database_loses_the_client_type_check_and_keeps_everything(tmp_path):
+    """v2 → v3 (§4.6). SQLite cannot drop a CHECK, so the table is rebuilt
+    — and a rebuild is exactly where rows, IDs and the AUTOINCREMENT
+    high-water mark get quietly lost. They must not be."""
+    import sqlite3 as sq
+
+    from aim_server.db import init_db
+
+    db_path = str(tmp_path / "v2.db")
+    old = sq.connect(db_path)
+    old.executescript(
+        """
+        CREATE TABLE participants (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            name               TEXT NOT NULL,
+            machine            TEXT NOT NULL,
+            client_type        TEXT NOT NULL
+                CHECK (client_type IN ('chat', 'cowork', 'code', 'web-ui')),
+            agent_type         TEXT NOT NULL,
+            registered_at      TEXT NOT NULL,
+            client_session_key TEXT,
+            last_seen_at       TEXT,
+            token_hash         TEXT
+        );
+        INSERT INTO participants
+            (id, name, machine, client_type, agent_type, registered_at,
+             client_session_key, last_seen_at, token_hash)
+        VALUES
+            (1, 'Nova', 'OMEN', 'chat', 'claude', '2026-08-17T00:00:00.000000Z',
+             'conversation-one', '2026-08-20T00:00:00.000000Z', 'abc123'),
+            (7, 'Antigravity', 'DESKTOP', 'code', 'gemini',
+             '2026-08-26T00:00:00.000000Z', NULL, NULL, NULL);
+        DELETE FROM sqlite_sequence WHERE name = 'participants';
+        INSERT INTO sqlite_sequence (name, seq) VALUES ('participants', 7);
+        PRAGMA user_version = 2;
+        """
+    )
+    old.commit()
+    old.close()
+
+    init_db(db_path)
+
+    conn = connect(db_path)
+    try:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+        rows = {
+            r["id"]: dict(r)
+            for r in conn.execute("SELECT * FROM participants ORDER BY id")
+        }
+        assert set(rows) == {1, 7}
+        # Nothing about the identities moved — including the credentials.
+        assert rows[1]["name"] == "Nova"
+        assert rows[1]["client_session_key"] == "conversation-one"
+        assert rows[1]["token_hash"] == "abc123"
+        assert rows[1]["last_seen_at"] == "2026-08-20T00:00:00.000000Z"
+        assert rows[7]["name"] == "Antigravity"
+
+        # The CHECK is gone, so a value nobody anticipated is storable.
+        conn.execute(
+            "INSERT INTO participants (name, machine, client_type, agent_type, "
+            "registered_at) VALUES ('Cascade', 'M', 'windsurf', 'claude', ?)",
+            (now_utc(),),
+        )
+        conn.commit()
+        # And the ID counter survived the rebuild: never reused (§4.2).
+        new_id = conn.execute(
+            "SELECT id FROM participants WHERE name = 'Cascade'"
+        ).fetchone()["id"]
+        assert new_id == 8
+
+        # The unique index on the continuity key is back in place.
+        with pytest.raises(sq.IntegrityError):
+            conn.execute(
+                "INSERT INTO participants (name, machine, client_type, "
+                "agent_type, registered_at, client_session_key) "
+                "VALUES ('Dupe', 'M', 'chat', 'claude', ?, 'conversation-one')",
+                (now_utc(),),
+            )
+    finally:
+        conn.close()
+
 
 def test_v0_database_is_migrated_preserving_ids_and_sequence(tmp_path):
     import sqlite3 as sq

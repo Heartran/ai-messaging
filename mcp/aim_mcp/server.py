@@ -148,7 +148,15 @@ async def aim_register(
     ],
     client_type: Annotated[
         str,
-        Field(description="Kind of client session: 'chat', 'cowork' or 'code'."),
+        Field(
+            min_length=1,
+            max_length=32,
+            description="Kind of client session. Conventionally 'chat', "
+            "'cowork', 'code' or 'web-ui' — but free text, not a closed "
+            "list (§4.6): if none of those describes this client, use the "
+            "name that does. It is provenance shown to a reader, and "
+            "nothing branches on it.",
+        ),
     ],
     agent_type: Annotated[
         str,

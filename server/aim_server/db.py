@@ -40,7 +40,7 @@ def _canonical(dt: datetime) -> str:
     return utc.isoformat(timespec="microseconds") + "Z"
 
 # Bump when the schema changes; migrate() upgrades live databases in place.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS server_meta (
@@ -52,8 +52,14 @@ CREATE TABLE IF NOT EXISTS participants (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     name               TEXT NOT NULL,
     machine            TEXT NOT NULL,
-    client_type        TEXT NOT NULL
-        CHECK (client_type IN ('chat', 'cowork', 'code', 'web-ui')),
+    -- Free text by design (§4.6): the four conventional values stopped
+    -- describing the products. The same agent registered once as 'code'
+    -- and once as 'chat' because neither fitted, which is a taxonomy
+    -- failing rather than a client misbehaving. Nothing in the system
+    -- branches on this field — it is provenance shown to a reader — so a
+    -- wrong value is a typo to correct by hand (§11), not a call to
+    -- reject.
+    client_type        TEXT NOT NULL,
     agent_type         TEXT NOT NULL,
     registered_at      TEXT NOT NULL,
     client_session_key TEXT,
@@ -212,6 +218,70 @@ def _migrate(conn: sqlite3.Connection) -> None:
         return  # fresh database: SCHEMA creates everything at the new shape
     _migrate_to_v1(conn)
     _migrate_to_v2(conn)
+    _migrate_to_v3(conn)
+
+
+def _migrate_to_v3(conn: sqlite3.Connection) -> None:
+    """v2 → v3: client_type stops being an enum (§4.6).
+
+    SQLite cannot drop a CHECK, so the table is rebuilt — preserving rows,
+    IDs and the AUTOINCREMENT high-water mark, exactly as the v1 migration
+    did when 'web-ui' had to be admitted. That earlier rebuild is the
+    argument for this one: a closed vocabulary needs a schema migration
+    every time a new kind of client appears, and they keep appearing.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master "
+        "WHERE type = 'table' AND name = 'participants'"
+    ).fetchone()
+    if row is None or "CHECK (client_type" not in (row["sql"] or ""):
+        return  # already free, or a fresh database built from SCHEMA
+
+    sequence = conn.execute(
+        "SELECT seq FROM sqlite_sequence WHERE name = 'participants'"
+    ).fetchone()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE participants_v3 (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                name               TEXT NOT NULL,
+                machine            TEXT NOT NULL,
+                client_type        TEXT NOT NULL,
+                agent_type         TEXT NOT NULL,
+                registered_at      TEXT NOT NULL,
+                client_session_key TEXT,
+                last_seen_at       TEXT,
+                token_hash         TEXT
+            );
+            INSERT INTO participants_v3
+                (id, name, machine, client_type, agent_type, registered_at,
+                 client_session_key, last_seen_at, token_hash)
+                SELECT id, name, machine, client_type, agent_type,
+                       registered_at, client_session_key, last_seen_at,
+                       token_hash
+                FROM participants;
+            DROP TABLE participants;
+            ALTER TABLE participants_v3 RENAME TO participants;
+            """
+        )
+        if sequence is not None:
+            # DROP TABLE took the AUTOINCREMENT high-water mark with it;
+            # restore it so participant IDs are never reused (§4.2, §4.7).
+            updated = conn.execute(
+                "UPDATE sqlite_sequence SET seq = ? WHERE name = 'participants'",
+                (sequence["seq"],),
+            )
+            if updated.rowcount == 0:
+                conn.execute(
+                    "INSERT INTO sqlite_sequence (name, seq) "
+                    "VALUES ('participants', ?)",
+                    (sequence["seq"],),
+                )
+        conn.commit()
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
 
 
 def _migrate_to_v2(conn: sqlite3.Connection) -> None:

@@ -8,11 +8,19 @@ No request model has an ID or timestamp field the client could forge.
 
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, Field
 
-ClientType = Literal["chat", "cowork", "code", "web-ui"]
+# Free text, not an enum (§4.6). The four conventional values —
+# chat, cowork, code, web-ui — stopped describing the products: the same
+# agent registered once as "code" and once as "chat" because neither
+# fitted. Nothing in the system branches on this field, so a closed
+# vocabulary bought a schema migration per new product and nothing else.
+# A wrong value is now a typo to correct by hand (§11), not a call to
+# reject at the door.
+CLIENT_TYPE_DESCRIPTION = (
+    "Kind of client session. Conventionally chat, cowork, code or web-ui, "
+    "but not restricted to those: use what actually describes this client."
+)
 
 
 class StrictModel(BaseModel):
@@ -35,7 +43,9 @@ class RegisterRequest(StrictModel):
         max_length=64,
         description="Hostname of the machine (descriptive metadata, not a key).",
     )
-    client_type: ClientType
+    client_type: str = Field(
+        min_length=1, max_length=32, description=CLIENT_TYPE_DESCRIPTION
+    )
     agent_type: str = Field(
         min_length=1,
         max_length=32,
@@ -96,7 +106,10 @@ class EditParticipantRequest(StrictModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=64)
     machine: str | None = Field(default=None, min_length=1, max_length=64)
-    client_type: ClientType | None = None
+    client_type: str | None = Field(
+        default=None, min_length=1, max_length=32,
+        description=CLIENT_TYPE_DESCRIPTION,
+    )
     agent_type: str | None = Field(default=None, min_length=1, max_length=32)
     client_session_key: str | None = Field(
         default=None,
