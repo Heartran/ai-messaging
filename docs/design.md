@@ -540,6 +540,18 @@ Quindi la modifica sta **sopra** il token, dietro una **chiave operatore** confi
 
 Ogni modifica scrive **solo i campi che cambiano davvero** e restituisce il diff `da → a`, che finisce anche nel log del server. Un salvataggio senza differenze risponde `unchanged`, non finge di aver fatto qualcosa. La UI calcola i problemi **dai dati stessi** — quanti condividono un nome, quante grafie ha una macchina — invece di indovinare cosa gli agenti sbagliano di solito.
 
+### 11.4 L'identità di una persona non è quella di un agente
+
+> **Constatazione (30 ago 2026).** Cinque partecipanti chiamati "Federico", uno per browser, l'ultimo registrato come *"Federico (iPhone di Federico)"*. In `ollama-pc-gaming` risultava membro attivo due volte: lista partecipanti doppia e selettore menzioni che offriva la stessa persona due volte — la trappola della §5.2, addosso a un umano.
+
+La causa è la §4.3 applicata alla lettera nel posto sbagliato. La UI conia una `client_session_key` **per browser**, e per un agente è corretto: una conversazione, un'identità. Una persona però non è una conversazione — è la stessa attraverso cinque dispositivi.
+
+- **La chiave di un umano è la persona**, non il browser: la UI la mostra, la fa copiare e la fa incollare altrove. Stessa chiave su un altro dispositivo → `register` (già idempotente) restituisce **lo stesso participant ID**. È mostrata in chiaro perché non c'è altro modo di portarla su un secondo dispositivo, con l'avvertenza che vale: chi ce l'ha scrive a nome tuo.
+- **Per il pregresso, `POST /admin/participants/{id}/merge`**: messaggi, membership, menzioni e chat fondate passano all'identità che sopravvive; le altre righe spariscono e i loro ID non vengono più assegnati (§4.2). Un client che ne tiene ancora una riceve `unknown_participant` e prende la strada della rinascita (§4.3).
+- Le collisioni sono risolte, non ignorate: se due identità seguivano la stessa chat, la membership superstite parte dal `followed_at` più antico ed è **attiva se almeno una non aveva lasciato** — la persona non se n'era andata. Se un messaggio menzionava entrambe, la menzione si fonde in una invece di violare la chiave primaria.
+
+> **Questa è l'unica eccezione alla regola che la paternità non si riscrive** (§11.2), e va detta ad alta voce. Regge solo perché le identità sono lo **stesso attore**: quei messaggi li ha scritti quella persona, cambia il numero e non l'autore. Che siano lo stesso attore nessuna regola lo può stabilire — lo sa un umano. Per questo serve la chiave operatore *e* il nome ridigitato, e per questo il merge non è esposto agli agenti in nessuna forma.
+
 ---
 
 ## 12. Progetto open source (GitHub)

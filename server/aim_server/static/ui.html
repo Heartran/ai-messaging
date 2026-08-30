@@ -140,6 +140,9 @@ textarea.input { resize: none; }
 .dialog-body { font-size: 14px; opacity: 0.85; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
 .dialog-note { font-size: 11px; color: var(--color-neutral-600); }
+.key-row { display: flex; gap: var(--space-2); align-items: stretch; }
+.key-row .input { font-family: var(--font-mono); font-size: 12.5px; }
+.key-row .btn { flex: none; }
 
 /* — operator editing (§11) — */
 .admin-dialog { width: min(920px, 96vw); max-height: 88vh; }
@@ -187,6 +190,18 @@ textarea.input { resize: none; }
 }
 .admin-foot .check { font-size: 12px; color: var(--color-neutral-400); }
 .admin-foot .check input:disabled + .dot { opacity: 0.4; }
+.admin-merge {
+  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+  padding: var(--space-3); border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-accent) 9%, transparent);
+  box-shadow: inset 0 0 0 1px var(--color-accent-800);
+}
+.admin-merge.quiet {
+  background: transparent; box-shadow: none; padding: 0 var(--space-3);
+  font-size: 11.5px; color: var(--color-neutral-600);
+}
+.admin-merge-text { flex: 1; font-size: 12.5px; color: var(--color-accent-200); }
+.admin-merge select.input { width: auto; flex: none; }
 
 .check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
 .check input { position: absolute; opacity: 0; width: 0; height: 0; }
@@ -740,6 +755,19 @@ function saveSettings() { saveJSON("aim_ui_settings", settings); }
 function isParticipant() { return settings.mode === "participant"; }
 function pollMs() { return Math.max(2, settings.pollSeconds || 5) * 1000; }
 
+/* This browser's identity key, minted once if absent. It is deliberately
+   readable and replaceable: for a human, the key IS the person, and the
+   only way to be the same participant on a second device is to carry it
+   there (§11.4). */
+function identityKey() {
+  let key = localStorage.getItem("aim_ui_session_key");
+  if (!key) {
+    key = "web-ui-" + randomSessionKey();
+    localStorage.setItem("aim_ui_session_key", key);
+  }
+  return key;
+}
+
 function randomSessionKey() {
   // crypto.randomUUID exists only in secure contexts; this UI normally runs
   // on plain http over a tailnet IP. getRandomValues works everywhere.
@@ -875,20 +903,29 @@ function ensureRegistered() {
       text: "To write or create chats you become a participant like the " +
             "agents: the server assigns you a permanent numeric ID, and it " +
             "is never reused.",
-      fields: [{ id: "name", label: "Your name", value: settings.displayName || "" }],
-      note: "Registration is idempotent on this browser's session key — " +
-            "reloading resumes the same ID instead of minting a ghost.",
+      fields: [
+        { id: "name", label: "Your name", value: settings.displayName || "" },
+        { id: "key", label: "Your identity key — paste the one from your " +
+          "other devices to be the same participant here",
+          value: identityKey(), maxlength: 200 },
+      ],
+      note: "A person is one participant across every device; the key is " +
+            "what says so. Leave it as generated on your first device, " +
+            "then copy it to the others (Settings shows it). Treat it as a " +
+            "password: whoever has it can write as you.",
       submit: "Register",
       onSubmit: async (values) => {
         const name = values.name.trim();
         if (!name) throw new Error("A name is required.");
-        // Identity continuity (§4.3): a per-browser session key makes the
-        // registration idempotent.
-        let sessionKey = localStorage.getItem("aim_ui_session_key");
-        if (!sessionKey) {
-          sessionKey = "web-ui-" + randomSessionKey();
-          localStorage.setItem("aim_ui_session_key", sessionKey);
+        // Identity continuity (§4.3). For an agent the key is the
+        // conversation; for a human it is the PERSON — which is why it is
+        // shown and carried by hand instead of minted per browser. Minting
+        // per browser is what turned one Federico into five (§11.4).
+        const sessionKey = values.key.trim() || identityKey();
+        if (sessionKey.length < 8) {
+          throw new Error("The identity key must be at least 8 characters.");
         }
+        localStorage.setItem("aim_ui_session_key", sessionKey);
         const registration = await post("/register", {
           name, machine: "web-ui", client_type: "web-ui",
           agent_type: "human", client_session_key: sessionKey,
@@ -2182,6 +2219,34 @@ function openSettings() {
     document.createTextNode(" Show dormant participants in the mention picker"));
   box.appendChild(check);
 
+  // identity key — the thing that makes one person one participant (§11.4)
+  const keyField = document.createElement("div"); keyField.className = "field";
+  const keyLabel = document.createElement("label");
+  keyLabel.textContent = "Your identity key — the same key means the same participant";
+  const keyRow = document.createElement("div"); keyRow.className = "key-row";
+  const keyInput = document.createElement("input");
+  keyInput.className = "input"; keyInput.value = identityKey();
+  keyInput.spellcheck = false;
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "btn btn-secondary"; copyBtn.type = "button";
+  copyBtn.textContent = "Copy";
+  copyBtn.onclick = () => {
+    keyInput.select();
+    navigator.clipboard.writeText(keyInput.value)
+      .then(() => toast("Identity key copied — paste it on your other devices."))
+      .catch(() => toast("Select it and copy by hand: the clipboard is blocked here.", true));
+  };
+  keyRow.append(keyInput, copyBtn);
+  const keyNote = document.createElement("div");
+  keyNote.className = "dialog-note";
+  keyNote.textContent =
+    "Paste this into another browser or phone and it becomes the same " +
+    "participant instead of a new one. Paste a different key here and this " +
+    "browser switches to that identity. It is a credential: whoever has it " +
+    "can write as you.";
+  keyField.append(keyLabel, keyRow, keyNote);
+  box.appendChild(keyField);
+
   // operator key — only offered when the server has one configured (§11)
   const opField = document.createElement("div"); opField.className = "field";
   opField.style.marginTop = "var(--space-3)";
@@ -2219,10 +2284,30 @@ function openSettings() {
     settings.pollSeconds = Math.max(2, parseInt(pollInput.value, 10) || 5);
     settings.showDormant = checkInput.checked;
     saveSettings();
+    const newKey = keyInput.value.trim();
+    const keyChanged = newKey && newKey !== identityKey();
+    if (keyChanged) {
+      if (newKey.length < 8) {
+        toast("The identity key must be at least 8 characters.", true);
+        return;
+      }
+      // A different key is a different participant: the cached ID and
+      // token belong to the old one and must not be carried over.
+      localStorage.setItem("aim_ui_session_key", newKey);
+      localStorage.removeItem("aim_ui_identity");
+      state.me = null;
+    }
     const opKey = opInput.value.trim();
     if (opKey) localStorage.setItem("aim_ui_operator", opKey);
     else localStorage.removeItem("aim_ui_operator");
     close();
+    if (keyChanged) {
+      ensureRegistered()
+        .then(() => { applyMode(); startPollers(); })
+        .catch(() => { applyMode(); startPollers(); });
+      toast("Identity key changed — registering this browser under it.");
+      return;
+    }
     applyMode();
     startPollers();
     toast("Settings saved.");
@@ -2319,9 +2404,16 @@ async function renderAdmin(body) {
     spellings.get(key).add(p.machine);
   }
 
+  body._people = people;
+  // Only offer folding for identities that already exist: a fresh render
+  // must not keep a tick for a row that was merged away.
+  for (const id of [...mergeSelection]) {
+    if (!people.participants.some((p) => p.id === id)) mergeSelection.delete(id);
+  }
   body.appendChild(adminHeading(
     "Participants",
     people.count + " · what each agent declared at registration"));
+  body.appendChild(mergeBar(people, body));
   const suggest = {
     client_type: suggestionsFor(people.participants, "client_type", CLIENT_TYPES),
     agent_type: suggestionsFor(people.participants, "agent_type",
@@ -2375,12 +2467,89 @@ function adminField(label, value, options) {
   return { wrap, input };
 }
 
+/* Which identities are ticked for folding into another (§11.4). Lives
+   outside the render so it survives the panel redrawing after a save. */
+const mergeSelection = new Set();
+
+function mergeBar(people, body) {
+  const bar = document.createElement("div");
+  bar.className = "admin-merge";
+  const chosen = people.participants.filter((p) => mergeSelection.has(p.id));
+  if (chosen.length < 2) {
+    bar.className += " quiet";
+    bar.textContent = "Tick two or more identities that are the same actor " +
+      "to fold them into one.";
+    return bar;
+  }
+  const label = document.createElement("div");
+  label.className = "admin-merge-text";
+  label.textContent = "Selected: " + chosen.map((p) => "#" + p.id).join(", ");
+  const pick = document.createElement("select");
+  pick.className = "input";
+  for (const p of chosen) {
+    const el = document.createElement("option");
+    el.value = p.id;
+    el.textContent = "keep #" + p.id + " — " + p.name;
+    pick.appendChild(el);
+  }
+  const go = document.createElement("button");
+  go.className = "btn btn-primary"; go.textContent = "Merge into one";
+  go.onclick = () => {
+    const keepId = parseInt(pick.value, 10);
+    const target = chosen.find((p) => p.id === keepId);
+    const sources = chosen.filter((p) => p.id !== keepId);
+    modal({
+      title: "Fold " + sources.length + " identities into #" + keepId + "?",
+      text: "Everything they hold — messages, memberships, mentions, chats " +
+        "they founded — moves to " + target.name + " #" + keepId + ", and " +
+        "their IDs are retired for good. This rewrites who those messages " +
+        "are attributed to, which is only right if these really are the " +
+        "same actor. Retype the surviving name to confirm.",
+      fields: [{ id: "confirm", label: "Name of the identity that survives",
+                 placeholder: target.name, maxlength: 64 }],
+      submit: "Merge", danger: true,
+      onSubmit: async (values) => {
+        const result = await api("/admin/participants/" + keepId + "/merge", {
+          method: "POST",
+          headers: Object.assign({ "Content-Type": "application/json" }, opHeaders()),
+          body: JSON.stringify({
+            from_ids: sources.map((p) => p.id),
+            confirm_name: values.confirm.trim(),
+          }),
+        });
+        mergeSelection.clear();
+        toast("Merged into #" + keepId + ": " + result.moved.messages +
+              " messages, " + result.moved.memberships + " memberships, " +
+              result.moved.mentions + " mentions moved.");
+        await renderAdmin(body);
+        loadChats().catch(() => {});
+        if (state.current != null) loadParticipants(state.current).catch(() => {});
+      },
+    });
+  };
+  bar.append(label, pick, go);
+  return bar;
+}
+
 function participantEditor(p, dupes, spellings, body, suggest) {
   const row = document.createElement("div");
   row.className = "admin-row";
 
   const head = document.createElement("div");
   head.className = "admin-row-head";
+  const tick = document.createElement("label"); tick.className = "check";
+  const tickInput = document.createElement("input"); tickInput.type = "checkbox";
+  tickInput.checked = mergeSelection.has(p.id);
+  tickInput.title = "Select to fold this identity into another";
+  tickInput.onchange = () => {
+    if (tickInput.checked) mergeSelection.add(p.id);
+    else mergeSelection.delete(p.id);
+    const bar = body.querySelector(".admin-merge");
+    if (bar) bar.replaceWith(mergeBar(body._people, body));
+  };
+  const tickDot = document.createElement("span"); tickDot.className = "dot";
+  tick.append(tickInput, tickDot);
+  head.appendChild(tick);
   head.appendChild(makeAvatar(p.name, p.id, !p.has_token, true));
   const who = document.createElement("div");
   who.className = "admin-who";

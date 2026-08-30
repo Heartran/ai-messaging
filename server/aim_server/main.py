@@ -43,6 +43,7 @@ from .models import (
     FollowChatRequest,
     IntroduceRequest,
     LeaveChatRequest,
+    MergeParticipantsRequest,
     RegisterRequest,
     SendMessageRequest,
 )
@@ -1383,6 +1384,152 @@ def _build_router(operator_key: str | None = None):
                 for key in ("id", "name", "machine", "client_type",
                             "agent_type", "registered_at", "last_seen_at")
             },
+        }
+
+    @router.post("/admin/participants/{participant_id}/merge")
+    def merge_participants(
+        participant_id: int,
+        body: MergeParticipantsRequest,
+        conn: sqlite3.Connection = Depends(_get_conn),
+        x_aim_operator: str | None = Header(default=None, alias="X-AIM-Operator"),
+    ):
+        """Fold duplicate identities of the same actor into one (§11.4).
+
+        The continuity key is minted per browser, which is right for an
+        agent and wrong for a person: one human, five devices, five
+        participants — and a mention picker offering the same human twice.
+
+        This is the one place authorship is rewritten, and it is allowed
+        only because the identities belong to the SAME actor, which no
+        rule can decide and a person can. Everything the sources hold —
+        messages, memberships, mentions, founded chats — moves to the
+        target; then the source rows go, and their IDs are never issued
+        again (§4.2). A client still holding one gets `unknown_participant`
+        and takes the rebirth path (§4.3).
+        """
+        require_operator(x_aim_operator)
+        target = require_participant(conn, participant_id)
+        if body.confirm_name.strip().lower() != target["name"].strip().lower():
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "confirm_name_mismatch",
+                    "message": f"confirm_name {body.confirm_name!r} does not "
+                    f"match participant {participant_id} "
+                    f"({target['name']!r}). Retype the surviving "
+                    "participant's name: a mistyped ID here rewrites the "
+                    "wrong actor's history.",
+                },
+            )
+        sources = sorted(set(body.from_ids) - {participant_id})
+        if not sources:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "nothing_to_merge",
+                    "message": "from_ids contains only the target itself.",
+                },
+            )
+        for source in sources:
+            require_participant(conn, source)
+
+        moved = {"messages": 0, "chats_founded": 0, "memberships": 0,
+                 "mentions": 0, "participants_removed": 0}
+        placeholders = ", ".join("?" for _ in sources)
+        try:
+            conn.execute("BEGIN")
+            moved["messages"] = conn.execute(
+                f"UPDATE messages SET sender_id = ? "
+                f"WHERE sender_id IN ({placeholders})",
+                (participant_id, *sources),
+            ).rowcount
+            moved["chats_founded"] = conn.execute(
+                f"UPDATE chats SET created_by = ? "
+                f"WHERE created_by IN ({placeholders})",
+                (participant_id, *sources),
+            ).rowcount
+
+            # Memberships and mentions are keyed on (chat, participant) and
+            # (message, participant): where target and source both appear,
+            # the pair already exists and the row cannot simply move.
+            for row in conn.execute(
+                f"SELECT chat_id, followed_at, left_at FROM chat_members "
+                f"WHERE participant_id IN ({placeholders})",
+                tuple(sources),
+            ).fetchall():
+                existing = conn.execute(
+                    "SELECT followed_at, left_at FROM chat_members "
+                    "WHERE chat_id = ? AND participant_id = ?",
+                    (row["chat_id"], participant_id),
+                ).fetchone()
+                if existing is None:
+                    conn.execute(
+                        "INSERT INTO chat_members "
+                        "(chat_id, participant_id, followed_at, left_at) "
+                        "VALUES (?, ?, ?, ?)",
+                        (row["chat_id"], participant_id,
+                         row["followed_at"], row["left_at"]),
+                    )
+                else:
+                    # Following since the earliest of the two, and still
+                    # following if either identity never left.
+                    followed_at = min(existing["followed_at"], row["followed_at"])
+                    if existing["left_at"] is None or row["left_at"] is None:
+                        left_at = None
+                    else:
+                        left_at = max(existing["left_at"], row["left_at"])
+                    conn.execute(
+                        "UPDATE chat_members SET followed_at = ?, left_at = ? "
+                        "WHERE chat_id = ? AND participant_id = ?",
+                        (followed_at, left_at, row["chat_id"], participant_id),
+                    )
+                moved["memberships"] += 1
+            conn.execute(
+                f"DELETE FROM chat_members WHERE participant_id IN ({placeholders})",
+                tuple(sources),
+            )
+
+            for row in conn.execute(
+                f"SELECT message_id FROM mentions "
+                f"WHERE participant_id IN ({placeholders})",
+                tuple(sources),
+            ).fetchall():
+                conn.execute(
+                    "INSERT OR IGNORE INTO mentions (message_id, participant_id) "
+                    "VALUES (?, ?)",
+                    (row["message_id"], participant_id),
+                )
+                moved["mentions"] += 1
+            conn.execute(
+                f"DELETE FROM mentions WHERE participant_id IN ({placeholders})",
+                tuple(sources),
+            )
+
+            moved["participants_removed"] = conn.execute(
+                f"DELETE FROM participants WHERE id IN ({placeholders})",
+                tuple(sources),
+            ).rowcount
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+        logger.info(
+            "operator merged participants %s into %d (%s): %s",
+            sources, participant_id, target["name"],
+            ", ".join(f"{what}={count}" for what, count in moved.items()),
+        )
+        return {
+            "participant_id": participant_id,
+            "name": target["name"],
+            "merged": sources,
+            "moved": moved,
+            "note": (
+                "Any client still holding one of the merged IDs will be told "
+                "the participant is unknown and will register again as a NEW "
+                "identity. To make them resume this one instead, give them "
+                f"participant {participant_id}'s continuity key."
+            ),
         }
 
     @router.patch("/admin/chats/{chat_id}")

@@ -128,6 +128,34 @@ class EditParticipantRequest(StrictModel):
     )
 
 
+class MergeParticipantsRequest(StrictModel):
+    """Fold duplicate identities of the SAME actor into one (§11.4).
+
+    The web UI mints a continuity key per browser, which is right for an
+    agent — one conversation, one identity — and wrong for a person, who
+    is one actor across five devices. This is the repair, and it is a
+    deliberate exception to the rule that authorship is never rewritten:
+    the messages stay attributed to the same human, only the number
+    changes. That exception holds only because the identities are the same
+    actor, which nothing but a human can judge — hence the operator key
+    and the retyped name.
+    """
+
+    from_ids: list[int] = Field(
+        min_length=1,
+        max_length=50,
+        description="Participants to fold into this one. They are deleted "
+        "afterwards; their IDs are never handed out again (§4.2).",
+    )
+    confirm_name: str = Field(
+        min_length=1,
+        max_length=64,
+        description="The surviving participant's exact name, retyped. The "
+        "same guard the chat deletion uses: a mistyped ID must fail loudly "
+        "rather than rewrite the wrong actor's history.",
+    )
+
+
 class EditChatRequest(StrictModel):
     name: str | None = Field(default=None, min_length=1, max_length=64)
     description: str | None = Field(default=None, max_length=280)

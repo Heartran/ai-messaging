@@ -532,6 +532,131 @@ def test_revoking_a_token_evicts_that_client(admin):
     assert blocked.json()["detail"]["code"] == "token_required"
 
 
+def test_merging_the_same_human_across_devices(admin):
+    """§11.4: the continuity key is per browser, so one person opening the
+    UI on five devices becomes five participants — and the mention picker
+    offers the same human twice."""
+    laptop = admin.post("/register", json={
+        "name": "Federico", "machine": "web-ui", "client_type": "web-ui",
+        "agent_type": "human", "client_session_key": "web-ui-laptop"}).json()
+    phone = admin.post("/register", json={
+        "name": "Federico", "machine": "web-ui", "client_type": "web-ui",
+        "agent_type": "human", "client_session_key": "web-ui-phone"}).json()
+    agent = register(admin, name="Nova")
+    keep, gone = laptop["participant_id"], phone["participant_id"]
+
+    chat_id = admin.post("/chats", json={
+        "participant_id": keep, "name": "lobby"}).json()["chat_id"]
+    admin.post(f"/chats/{chat_id}/follow", json={"participant_id": gone})
+    admin.post(f"/chats/{chat_id}/messages",
+               json={"sender_id": keep, "text": "from the laptop"})
+    admin.post(f"/chats/{chat_id}/messages",
+               json={"sender_id": gone, "text": "from the phone"})
+    # An agent mentioned BOTH of him in one message: the merge must not
+    # trip over the (message, participant) primary key.
+    admin.post(f"/chats/{chat_id}/follow", json={"participant_id": agent["participant_id"]})
+    admin.post(f"/chats/{chat_id}/messages", json={
+        "sender_id": agent["participant_id"], "text": "which of you is it",
+        "mentions": [keep, gone]})
+
+    result = admin.post(f"/admin/participants/{keep}/merge",
+                        json={"from_ids": [gone], "confirm_name": "Federico"},
+                        headers=op()).json()
+    assert result["merged"] == [gone]
+    assert result["moved"]["messages"] == 1
+    assert result["moved"]["participants_removed"] == 1
+
+    # One human left, and he still says everything he said.
+    listing = admin.get(f"/chats/{chat_id}/participants").json()
+    humans = [p for p in listing["participants"] if p["name"] == "Federico"]
+    assert len(humans) == 1 and humans[0]["id"] == keep
+    assert humans[0]["active"] is True
+
+    messages = admin.get(f"/chats/{chat_id}/messages").json()["messages"]
+    mine = [m["text"] for m in messages if m["sender"]["id"] == keep]
+    assert set(mine) == {"from the laptop", "from the phone"}
+
+    # The double mention collapsed instead of exploding.
+    mentioning = next(m for m in messages if m["text"] == "which of you is it")
+    assert mentioning["mentions"] == [keep]
+
+    # The merged ID is gone for good and is never handed out again.
+    assert admin.get(f"/participants/{gone}/chats").status_code == 404
+    fresh = register(admin, name="Somebody")
+    assert fresh["participant_id"] > max(keep, gone)
+
+
+def test_a_stale_client_of_a_merged_identity_is_told_to_re_register(admin):
+    phone = admin.post("/register", json={
+        "name": "Federico", "machine": "web-ui", "client_type": "web-ui",
+        "agent_type": "human", "client_session_key": "web-ui-phone"}).json()
+    laptop = admin.post("/register", json={
+        "name": "Federico", "machine": "web-ui", "client_type": "web-ui",
+        "agent_type": "human", "client_session_key": "web-ui-laptop"}).json()
+    chat_id = admin.post("/chats", json={
+        "participant_id": laptop["participant_id"], "name": "lobby"}).json()["chat_id"]
+
+    admin.post(f"/admin/participants/{laptop['participant_id']}/merge",
+               json={"from_ids": [phone["participant_id"]],
+                     "confirm_name": "Federico"}, headers=op())
+
+    stale = admin.post(f"/chats/{chat_id}/messages",
+                       json={"sender_id": phone["participant_id"], "text": "hi"},
+                       headers={"X-AIM-Token": phone["participant_token"]})
+    assert stale.status_code == 404
+    assert stale.json()["detail"]["code"] == "unknown_participant"
+
+
+def test_merge_refuses_a_mistyped_target(admin):
+    a = register(admin, name="Federico")["participant_id"]
+    b = register(admin, name="Nova")["participant_id"]
+    response = admin.post(f"/admin/participants/{a}/merge",
+                          json={"from_ids": [b], "confirm_name": "Nova"},
+                          headers=op())
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "confirm_name_mismatch"
+    # Nothing moved.
+    assert admin.get(f"/participants/{b}/chats").status_code == 200
+
+
+def test_merge_needs_the_operator_key_and_a_real_source(admin):
+    a = register(admin, name="Federico")["participant_id"]
+    assert admin.post(f"/admin/participants/{a}/merge",
+                      json={"from_ids": [999], "confirm_name": "Federico"}
+                      ).status_code == 403
+    missing = admin.post(f"/admin/participants/{a}/merge",
+                         json={"from_ids": [999], "confirm_name": "Federico"},
+                         headers=op())
+    assert missing.status_code == 404
+    itself = admin.post(f"/admin/participants/{a}/merge",
+                        json={"from_ids": [a], "confirm_name": "Federico"},
+                        headers=op())
+    assert itself.status_code == 422
+    assert itself.json()["detail"]["code"] == "nothing_to_merge"
+
+
+def test_merge_keeps_the_earliest_following_and_the_live_membership(admin):
+    """Two devices, one left the chat and one did not: the surviving
+    membership must say still-following, since the human never left."""
+    keep = register(admin, name="Federico")["participant_id"]
+    gone = register(admin, name="Federico2")["participant_id"]
+    chat_id = admin.post("/chats", json={
+        "participant_id": gone, "name": "lobby"}).json()["chat_id"]
+    early = admin.get(f"/chats/{chat_id}/participants").json()["participants"][0]["followed_at"]
+    admin.post(f"/chats/{chat_id}/follow", json={"participant_id": keep})
+    admin.post(f"/chats/{chat_id}/leave", json={"participant_id": keep})
+
+    admin.post(f"/admin/participants/{keep}/merge",
+               json={"from_ids": [gone], "confirm_name": "Federico"}, headers=op())
+
+    member = admin.get(f"/chats/{chat_id}/participants").json()["participants"][0]
+    assert member["id"] == keep
+    assert member["active"] is True          # the other device never left
+    assert member["followed_at"] == early    # following since the earlier one
+    # The chat it founded now belongs to the surviving identity.
+    assert admin.get("/chats").json()["chats"][0]["created_by"] == keep
+
+
 def test_editing_a_chat_name_and_description(admin):
     pid = register(admin)["participant_id"]
     chat_id = admin.post("/chats", json={
