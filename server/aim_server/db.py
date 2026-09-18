@@ -40,7 +40,7 @@ def _canonical(dt: datetime) -> str:
     return utc.isoformat(timespec="microseconds") + "Z"
 
 # Bump when the schema changes; migrate() upgrades live databases in place.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS server_meta (
@@ -108,6 +108,68 @@ CREATE TABLE IF NOT EXISTS mentions (
 
 CREATE INDEX IF NOT EXISTS idx_mentions_participant
     ON mentions(participant_id, message_id);
+
+-- Memory Layer tables (Issue #11: lightweight temporal knowledge graph)
+-- Stores facts, decisions, context, and derived knowledge with full provenance
+
+CREATE TABLE IF NOT EXISTS memories (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    memory_type        TEXT NOT NULL CHECK (memory_type IN ('FACT', 'DECISION', 'CONTEXT', 'KNOWLEDGE')),
+    content            TEXT NOT NULL,
+    status             TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'SUPERSEDED', 'ARCHIVED', 'DISPUTED')),
+    confidence         REAL NOT NULL DEFAULT 0.95 CHECK (confidence >= 0.0 AND confidence <= 1.0),
+    source_message_id  INTEGER REFERENCES messages(id),
+    project_id         INTEGER,
+    creator_id         INTEGER REFERENCES participants(id),
+    metadata           TEXT,
+    created_at         TEXT NOT NULL,
+    updated_at         TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memories_type_status
+    ON memories(memory_type, status);
+CREATE INDEX IF NOT EXISTS idx_memories_project
+    ON memories(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_memories_created
+    ON memories(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memories_source_message
+    ON memories(source_message_id);
+
+-- Track memory supersession relationships (MEM-182 → MEM-431)
+CREATE TABLE IF NOT EXISTS memory_lineage (
+    superseded_id      INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    superseding_id     INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    reason             TEXT,
+    recorded_at        TEXT NOT NULL,
+    PRIMARY KEY (superseded_id, superseding_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lineage_superseding
+    ON memory_lineage(superseding_id);
+
+-- Tags for efficient semantic search
+CREATE TABLE IF NOT EXISTS memory_tags (
+    memory_id          INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    tag                TEXT NOT NULL,
+    PRIMARY KEY (memory_id, tag)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tags_tag
+    ON memory_tags(tag, memory_id);
+
+-- Track contradictions and disputes between memories
+CREATE TABLE IF NOT EXISTS memory_disputes (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    memory_id          INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    conflicting_id     INTEGER REFERENCES memories(id) ON DELETE SET NULL,
+    reason             TEXT NOT NULL,
+    created_at         TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_disputes_memory
+    ON memory_disputes(memory_id);
+CREATE INDEX IF NOT EXISTS idx_disputes_conflicting
+    ON memory_disputes(conflicting_id);
 """
 
 
@@ -219,6 +281,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_to_v1(conn)
     _migrate_to_v2(conn)
     _migrate_to_v3(conn)
+    _migrate_to_v4(conn)
 
 
 def _migrate_to_v3(conn: sqlite3.Connection) -> None:
@@ -372,3 +435,78 @@ def purge_old_messages(conn: sqlite3.Connection, cutoff: str) -> int:
     cur = conn.execute("DELETE FROM messages WHERE created_at < ?", (cutoff,))
     conn.commit()
     return cur.rowcount
+
+
+def _migrate_to_v4(conn: sqlite3.Connection) -> None:
+    """v3 → v4: Add Memory Layer tables (Issue #11).
+
+    Adds the lightweight temporal knowledge graph tables for storing facts,
+    decisions, context, and derived knowledge with full provenance tracking.
+    Existing databases are not affected — the new tables are simply added.
+    """
+    # Check if memories table already exists
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memories'"
+    ).fetchone()
+    if exists:
+        return  # already migrated
+
+    # Create all memory layer tables at once
+    conn.executescript("""
+        CREATE TABLE memories (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            memory_type        TEXT NOT NULL CHECK (memory_type IN ('FACT', 'DECISION', 'CONTEXT', 'KNOWLEDGE')),
+            content            TEXT NOT NULL,
+            status             TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'SUPERSEDED', 'ARCHIVED', 'DISPUTED')),
+            confidence         REAL NOT NULL DEFAULT 0.95 CHECK (confidence >= 0.0 AND confidence <= 1.0),
+            source_message_id  INTEGER REFERENCES messages(id),
+            project_id         INTEGER,
+            creator_id         INTEGER REFERENCES participants(id),
+            metadata           TEXT,
+            created_at         TEXT NOT NULL,
+            updated_at         TEXT NOT NULL
+        );
+
+        CREATE INDEX idx_memories_type_status
+            ON memories(memory_type, status);
+        CREATE INDEX idx_memories_project
+            ON memories(project_id, status);
+        CREATE INDEX idx_memories_created
+            ON memories(created_at DESC);
+        CREATE INDEX idx_memories_source_message
+            ON memories(source_message_id);
+
+        CREATE TABLE memory_lineage (
+            superseded_id      INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+            superseding_id     INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+            reason             TEXT,
+            recorded_at        TEXT NOT NULL,
+            PRIMARY KEY (superseded_id, superseding_id)
+        );
+
+        CREATE INDEX idx_lineage_superseding
+            ON memory_lineage(superseding_id);
+
+        CREATE TABLE memory_tags (
+            memory_id          INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+            tag                TEXT NOT NULL,
+            PRIMARY KEY (memory_id, tag)
+        );
+
+        CREATE INDEX idx_tags_tag
+            ON memory_tags(tag, memory_id);
+
+        CREATE TABLE memory_disputes (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            memory_id          INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+            conflicting_id     INTEGER REFERENCES memories(id) ON DELETE SET NULL,
+            reason             TEXT NOT NULL,
+            created_at         TEXT NOT NULL
+        );
+
+        CREATE INDEX idx_disputes_memory
+            ON memory_disputes(memory_id);
+        CREATE INDEX idx_disputes_conflicting
+            ON memory_disputes(conflicting_id);
+    """)
+    conn.commit()
