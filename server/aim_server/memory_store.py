@@ -49,38 +49,35 @@ class MemoryStore:
         now = now_utc()
         metadata_json = json.dumps(request.metadata) if request.metadata else None
 
-        cursor = self.conn.execute(
-            """
-            INSERT INTO memories
-                (memory_type, content, status, confidence, source_message_id,
-                 project_id, creator_id, metadata, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                request.memory_type.value,
-                request.content,
-                MemoryStatus.ACTIVE.value,
-                request.confidence,
-                request.source_message_id,
-                request.project_id,
-                creator_id,
-                metadata_json,
-                now,
-                now,
-            ),
-        )
-        self.conn.commit()
-        memory_id = cursor.lastrowid
+        with self.conn:
+            cursor = self.conn.execute(
+                """
+                INSERT INTO memories
+                    (memory_type, content, status, confidence, source_message_id,
+                     project_id, creator_id, metadata, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    request.memory_type.value,
+                    request.content,
+                    MemoryStatus.ACTIVE.value,
+                    request.confidence,
+                    request.source_message_id,
+                    request.project_id,
+                    creator_id,
+                    metadata_json,
+                    now,
+                    now,
+                ),
+            )
+            memory_id = cursor.lastrowid
 
-        # Store tags if provided
-        if request.tags:
-            for tag in request.tags:
+            # Store unique tags as one transaction with the memory row.
+            for tag in dict.fromkeys(request.tags):
                 self.conn.execute(
                     "INSERT INTO memory_tags (memory_id, tag) VALUES (?, ?)",
                     (memory_id, tag),
                 )
-            self.conn.commit()
-
         return self._fetch_memory(memory_id)
 
     def update_memory(
