@@ -78,3 +78,35 @@ def test_search_status_filter_includes_historical_memories(tmp_path):
             assert [memory.status for memory in results] == [status]
     finally:
         conn.close()
+
+
+def test_project_context_treats_zero_as_a_project_scope(tmp_path):
+    db_path = tmp_path / "memory.db"
+    init_db(str(db_path))
+    conn = connect(str(db_path))
+    try:
+        store = MemoryStore(conn)
+        store.store_memory(
+            StoreMemoryRequest(
+                memory_type=MemoryType.FACT,
+                content="Project zero memory",
+                project_id=0,
+            ),
+            creator_id=None,
+        )
+        store.store_memory(
+            StoreMemoryRequest(
+                memory_type=MemoryType.FACT,
+                content="Unscoped memory",
+            ),
+            creator_id=None,
+        )
+
+        context = store.get_project_context(project_id=0)
+
+        assert context.total_memories == 1
+        assert [memory.content for memory in context.key_facts] == [
+            "Project zero memory"
+        ]
+    finally:
+        conn.close()

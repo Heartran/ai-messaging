@@ -333,8 +333,8 @@ class MemoryStore:
             ProjectContextResponse with curated memories
         """
         now = now_utc()
-        project_filter = "AND project_id = ?" if project_id else "AND project_id IS NULL"
-        filter_param = (project_id,) if project_id else ()
+        project_filter = "AND project_id = ?" if project_id is not None else "AND project_id IS NULL"
+        filter_param = (project_id,) if project_id is not None else ()
 
         # Fetch top decisions (high confidence, sorted by recency)
         decisions = self._fetch_memories_by_type(
