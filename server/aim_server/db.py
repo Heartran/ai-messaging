@@ -439,7 +439,7 @@ def purge_old_messages(conn: sqlite3.Connection, cutoff: str) -> int:
 
 def _migrate_to_v4(conn: sqlite3.Connection) -> None:
     """v3 → v4: Add Memory Layer tables (Issue #11).
-    
+
     Adds the lightweight temporal knowledge graph tables for storing facts,
     decisions, context, and derived knowledge with full provenance tracking.
     Existing databases are not affected — the new tables are simply added.
@@ -450,7 +450,7 @@ def _migrate_to_v4(conn: sqlite3.Connection) -> None:
     ).fetchone()
     if exists:
         return  # already migrated
-    
+
     # Create all memory layer tables at once
     conn.executescript("""
         CREATE TABLE memories (
@@ -510,4 +510,3 @@ def _migrate_to_v4(conn: sqlite3.Connection) -> None:
             ON memory_disputes(conflicting_id);
     """)
     conn.commit()
-

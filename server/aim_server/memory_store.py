@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
 from typing import Optional
 
 from aim_server.db import now_utc
@@ -39,20 +38,20 @@ class MemoryStore:
         creator_id: int
     ) -> MemoryResponse:
         """Store a new memory with classification and provenance.
-        
+
         Args:
             request: StoreMemoryRequest with memory content and classification
             creator_id: Participant ID of the agent creating this memory
-            
+
         Returns:
             MemoryResponse with the stored memory and its ID
         """
         now = now_utc()
         metadata_json = json.dumps(request.metadata) if request.metadata else None
-        
+
         cursor = self.conn.execute(
             """
-            INSERT INTO memories 
+            INSERT INTO memories
                 (memory_type, content, status, confidence, source_message_id,
                  project_id, creator_id, metadata, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -89,43 +88,43 @@ class MemoryStore:
         request: UpdateMemoryRequest
     ) -> MemoryResponse:
         """Update an existing memory's properties.
-        
+
         Args:
             request: UpdateMemoryRequest with updates to apply
-            
+
         Returns:
             Updated MemoryResponse
         """
         now = now_utc()
-        
+
         # Build update query dynamically based on provided fields
         updates = []
         params = []
-        
+
         if request.content is not None:
             updates.append("content = ?")
             params.append(request.content)
-        
+
         if request.confidence is not None:
             updates.append("confidence = ?")
             params.append(request.confidence)
-        
+
         if request.status is not None:
             updates.append("status = ?")
             params.append(request.status.value)
-        
+
         if not updates:
             # No updates provided
             return self._fetch_memory(request.memory_id)
-        
+
         # Always update the timestamp
         updates.append("updated_at = ?")
         params.append(now)
         params.append(request.memory_id)
-        
+
         update_sql = f"UPDATE memories SET {', '.join(updates)} WHERE id = ?"
         self.conn.execute(update_sql, params)
-        
+
         # Handle tags separately
         if request.tags is not None:
             self.conn.execute("DELETE FROM memory_tags WHERE memory_id = ?", (request.memory_id,))
@@ -134,7 +133,7 @@ class MemoryStore:
                     "INSERT INTO memory_tags (memory_id, tag) VALUES (?, ?)",
                     (request.memory_id, tag),
                 )
-        
+
         # Handle metadata
         if request.metadata is not None:
             metadata_json = json.dumps(request.metadata) if request.metadata else None
@@ -142,7 +141,7 @@ class MemoryStore:
                 "UPDATE memories SET metadata = ? WHERE id = ?",
                 (metadata_json, request.memory_id),
             )
-        
+
         self.conn.commit()
         return self._fetch_memory(request.memory_id)
 
@@ -151,24 +150,24 @@ class MemoryStore:
         request: SupersedeMemoryRequest
     ) -> tuple[MemoryResponse, MemoryResponse]:
         """Mark one memory as superseded by another.
-        
+
         Creates a lineage relationship and updates statuses to reflect
         the supersession (evolution, contradiction resolution, etc).
-        
+
         Args:
             request: SupersedeMemoryRequest
-            
+
         Returns:
             Tuple of (superseded_memory, superseding_memory)
         """
         now = now_utc()
-        
+
         # Mark the old memory as superseded
         self.conn.execute(
             "UPDATE memories SET status = ? WHERE id = ?",
             (MemoryStatus.SUPERSEDED.value, request.superseded_memory_id),
         )
-        
+
         # Record the lineage relationship
         self.conn.execute(
             """
@@ -182,9 +181,9 @@ class MemoryStore:
                 now,
             ),
         )
-        
+
         self.conn.commit()
-        
+
         return (
             self._fetch_memory(request.superseded_memory_id),
             self._fetch_memory(request.superseding_memory_id),
@@ -195,24 +194,24 @@ class MemoryStore:
         request: DisputeMemoryRequest
     ) -> MemoryResponse:
         """Flag a memory as disputed or contradictory.
-        
+
         Records the dispute without changing the original memory's status;
         instead marks it as DISPUTED so it can be investigated and resolved.
-        
+
         Args:
             request: DisputeMemoryRequest
-            
+
         Returns:
             Updated MemoryResponse with DISPUTED status
         """
         now = now_utc()
-        
+
         # Mark memory as disputed
         self.conn.execute(
             "UPDATE memories SET status = ? WHERE id = ?",
             (MemoryStatus.DISPUTED.value, request.memory_id),
         )
-        
+
         # Record the dispute
         self.conn.execute(
             """
@@ -226,7 +225,7 @@ class MemoryStore:
                 now,
             ),
         )
-        
+
         self.conn.commit()
         return self._fetch_memory(request.memory_id)
 
@@ -235,56 +234,56 @@ class MemoryStore:
         request: SearchMemoriesRequest
     ) -> tuple[int, list[MemoryResponse]]:
         """Search for memories by type, tags, text, or project.
-        
+
         Implements the selective semantic retrieval pattern: returns a compact,
         relevant context instead of all memories.
-        
+
         Args:
             request: SearchMemoriesRequest with search criteria
-            
+
         Returns:
             Tuple of (total_count, results)
         """
         where_clauses = ["status IN ('ACTIVE', 'DISPUTED')"]  # exclude SUPERSEDED, ARCHIVED
         params = []
-        
+
         # Filter by memory type
         if request.memory_types:
             types = [t.value for t in request.memory_types]
             placeholders = ",".join(["?" for _ in types])
             where_clauses.append(f"memory_type IN ({placeholders})")
             params.extend(types)
-        
+
         # Filter by project
         if request.project_id is not None:
             where_clauses.append("project_id = ?")
             params.append(request.project_id)
-        
+
         # Filter by status
         if request.status is not None:
             where_clauses.insert(0, f"status = '{request.status.value}'")
-        
+
         # Filter by minimum confidence
         if request.min_confidence > 0:
             where_clauses.append("confidence >= ?")
             params.append(request.min_confidence)
-        
+
         # Build base query
         where_sql = " AND ".join(where_clauses)
-        
+
         # Full-text search on content
         if request.query:
             # Simple substring match for now; can upgrade to FTS5 later
             where_clauses.append("content LIKE ?")
             params.append(f"%{request.query}%")
             where_sql = " AND ".join(where_clauses)
-        
+
         # Tag filtering (all tags must be present)
         if request.tags:
             tag_placeholders = ",".join(["?" for _ in request.tags])
             where_sql += f"""
                 AND id IN (
-                    SELECT memory_id FROM memory_tags 
+                    SELECT memory_id FROM memory_tags
                     WHERE tag IN ({tag_placeholders})
                     GROUP BY memory_id
                     HAVING COUNT(DISTINCT tag) = ?
@@ -292,12 +291,12 @@ class MemoryStore:
             """
             params.extend(request.tags)
             params.append(len(request.tags))
-        
+
         # Count total results
         count_query = f"SELECT COUNT(*) as cnt FROM memories WHERE {where_sql}"
         count_result = self.conn.execute(count_query, params).fetchone()
         total_count = count_result["cnt"] if count_result else 0
-        
+
         # Fetch paginated results
         query = f"""
             SELECT id FROM memories
@@ -305,17 +304,17 @@ class MemoryStore:
             ORDER BY created_at DESC
             LIMIT ? OFFSET 0
         """
-        
+
         # Note: we rebuild params here to avoid param count issues
         search_params = []
-        
+
         # Rebuild params for the paginated query
         search_params.extend(params)
         search_params.append(request.limit)
-        
+
         results = self.conn.execute(query, search_params).fetchall()
         memories = [self._fetch_memory(row["id"]) for row in results]
-        
+
         return total_count, memories
 
     def get_project_context(
@@ -323,49 +322,49 @@ class MemoryStore:
         project_id: Optional[int] = None
     ) -> ProjectContextResponse:
         """Build a compact project context from relevant memories.
-        
+
         Retrieves key decisions, facts, active context, and derived knowledge
         for a project, implementing the 'compact and relevant context' pattern
         that replaces infinite chat history.
-        
+
         Args:
             project_id: Optional project ID to scope the context
-            
+
         Returns:
             ProjectContextResponse with curated memories
         """
         now = now_utc()
         project_filter = "AND project_id = ?" if project_id else "AND project_id IS NULL"
         filter_param = (project_id,) if project_id else ()
-        
+
         # Fetch top decisions (high confidence, sorted by recency)
         decisions = self._fetch_memories_by_type(
             MemoryType.DECISION,
             project_id,
             limit=5
         )
-        
+
         # Fetch top facts
         facts = self._fetch_memories_by_type(
             MemoryType.FACT,
             project_id,
             limit=5
         )
-        
+
         # Fetch active context (recent, temporary info)
         context = self._fetch_memories_by_type(
             MemoryType.CONTEXT,
             project_id,
             limit=5
         )
-        
+
         # Fetch derived knowledge
         knowledge = self._fetch_memories_by_type(
             MemoryType.KNOWLEDGE,
             project_id,
             limit=5
         )
-        
+
         # Get total count
         total_query = f"""
             SELECT COUNT(*) as cnt FROM memories
@@ -374,9 +373,9 @@ class MemoryStore:
         """
         total_result = self.conn.execute(total_query, filter_param).fetchone()
         total_count = total_result["cnt"] if total_result else 0
-        
+
         summary = self._build_context_summary(decisions, facts, context, knowledge)
-        
+
         return ProjectContextResponse(
             project_id=project_id,
             summary=summary,
@@ -394,10 +393,10 @@ class MemoryStore:
             "SELECT * FROM memories WHERE id = ?",
             (memory_id,),
         ).fetchone()
-        
+
         if not row:
             raise ValueError(f"Memory {memory_id} not found")
-        
+
         # Fetch tags
         tags = [
             r["tag"] for r in self.conn.execute(
@@ -405,20 +404,20 @@ class MemoryStore:
                 (memory_id,),
             ).fetchall()
         ]
-        
+
         # Fetch supersession info
         superseded_by = self.conn.execute(
             "SELECT superseding_id FROM memory_lineage WHERE superseded_id = ? LIMIT 1",
             (memory_id,),
         ).fetchone()
-        
+
         supersedes = self.conn.execute(
             "SELECT superseded_id FROM memory_lineage WHERE superseding_id = ? LIMIT 1",
             (memory_id,),
         ).fetchone()
-        
+
         metadata = json.loads(row["metadata"]) if row["metadata"] else {}
-        
+
         return MemoryResponse(
             memory_id=row["id"],
             memory_type=MemoryType(row["memory_type"]),
@@ -447,16 +446,16 @@ class MemoryStore:
             WHERE memory_type = ? AND status IN ('ACTIVE', 'DISPUTED')
         """
         params = [memory_type.value]
-        
+
         if project_id is not None:
             query += " AND project_id = ?"
             params.append(project_id)
         else:
             query += " AND project_id IS NULL"
-        
+
         query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
-        
+
         rows = self.conn.execute(query, params).fetchall()
         return [self._fetch_memory(row["id"]) for row in rows]
 
@@ -469,25 +468,25 @@ class MemoryStore:
     ) -> str:
         """Build a human-readable summary of the project context."""
         lines = []
-        
+
         if decisions:
             lines.append("**Key Decisions:**")
             for mem in decisions[:3]:
                 lines.append(f"- {mem.content[:100]}...")
-        
+
         if facts:
             lines.append("\n**Key Facts:**")
             for mem in facts[:3]:
                 lines.append(f"- {mem.content[:100]}...")
-        
+
         if context:
             lines.append("\n**Active Context:**")
             for mem in context[:3]:
                 lines.append(f"- {mem.content[:100]}...")
-        
+
         if knowledge:
             lines.append("\n**Derived Knowledge:**")
             for mem in knowledge[:3]:
                 lines.append(f"- {mem.content[:100]}...")
-        
+
         return "\n".join(lines) if lines else "No memories found for this project."

@@ -757,12 +757,12 @@ def test_presence_tracks_activity_and_marks_dormant(client, tmp_path):
 # --------------------------------------------------------------- migration
 
 def test_v2_database_loses_the_client_type_check_and_keeps_everything(tmp_path):
-    """v2 → v3 (§4.6). SQLite cannot drop a CHECK, so the table is rebuilt
+    """v2 → current schema (§4.6). SQLite cannot drop a CHECK, so the table is rebuilt
     — and a rebuild is exactly where rows, IDs and the AUTOINCREMENT
     high-water mark get quietly lost. They must not be."""
     import sqlite3 as sq
 
-    from aim_server.db import init_db
+    from aim_server.db import SCHEMA_VERSION, init_db
 
     db_path = str(tmp_path / "v2.db")
     old = sq.connect(db_path)
@@ -800,7 +800,7 @@ def test_v2_database_loses_the_client_type_check_and_keeps_everything(tmp_path):
 
     conn = connect(db_path)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         rows = {
             r["id"]: dict(r)
             for r in conn.execute("SELECT * FROM participants ORDER BY id")
