@@ -110,7 +110,7 @@ class MemoryStore:
             updates.append("status = ?")
             params.append(request.status.value)
 
-        if not updates:
+        if not updates and request.tags is None and request.metadata is None:
             # No updates provided
             return self._fetch_memory(request.memory_id)
 
