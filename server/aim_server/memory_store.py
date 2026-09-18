@@ -241,8 +241,14 @@ class MemoryStore:
         Returns:
             Tuple of (total_count, results)
         """
-        where_clauses = ["status IN ('ACTIVE', 'DISPUTED')"]  # exclude SUPERSEDED, ARCHIVED
+        # By default, search only currently relevant memories. An explicit status
+        # filter must override this so callers can retrieve retained history.
         params = []
+        if request.status is None:
+            where_clauses = ["status IN ('ACTIVE', 'DISPUTED')"]
+        else:
+            where_clauses = ["status = ?"]
+            params.append(request.status.value)
 
         # Filter by memory type
         if request.memory_types:
@@ -255,10 +261,6 @@ class MemoryStore:
         if request.project_id is not None:
             where_clauses.append("project_id = ?")
             params.append(request.project_id)
-
-        # Filter by status
-        if request.status is not None:
-            where_clauses.insert(0, f"status = '{request.status.value}'")
 
         # Filter by minimum confidence
         if request.min_confidence > 0:
