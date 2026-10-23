@@ -77,3 +77,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: desktop/aim-desktop-*-windows.zip
+          # Attaches to the hand-written release for v<VERSION>; notes untouched.

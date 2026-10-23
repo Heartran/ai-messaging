@@ -351,9 +351,12 @@ the desktop app loads the UI the server serves). `VERSION` at the root
 is the source of truth; `python scripts/version.py set 0.15.2` writes it
 into every `pyproject.toml`, `__init__.py`, the manifest and the lock,
 and CI refuses a tree where any of them disagrees (`check`). To release:
-bump, commit, then `git tag v0.15.2 && git push origin v0.15.2` — the tag
-runs both build workflows and they attach `aim-mcp-0.15.2.mcpb` and
-`aim-desktop-0.15.2-windows.zip` to the same GitHub release.
+bump, commit, merge, then create the release from GitHub ("Draft a new
+release") with tag **`v0.15.2`** — the `v` matters: the workflows only
+run on `v*` tags, and `check --tag` refuses anything else. Write the
+notes yourself; the tag runs both build workflows, which attach
+`aim-mcp-0.15.2.mcpb` and `aim-desktop-0.15.2-windows.zip` to that
+release and never touch its notes.
 
 **Packaging the `.mcpb` extension bundle.** CI does it with the official
 CLI (`.github/workflows/mcpb.yml`): every pull request touching `mcp/`

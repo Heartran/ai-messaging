@@ -102,4 +102,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: aim-mcp-*.mcpb
-          generate_release_notes: true
+          # The release and its notes are written by hand (from GitHub's
+          # "Draft a new release", tag v<VERSION>); the job only attaches
+          # the file to it, and never touches the notes.
