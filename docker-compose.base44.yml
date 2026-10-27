@@ -1,0 +1,54 @@
+# Base44 sandbox environment for AI Messaging — development only.
+#
+# Runs the central server (server/) from the cloned source with uvicorn
+# --reload, and serves its web UI on host port 3000, the sandbox preview
+# entry point. No database service is needed: the server keeps its own
+# SQLite file (named volume, outside the repo).
+#
+# Why the loopback bind and the port bridge: the server's security model is
+# "bind a Tailscale address only, never 0.0.0.0". This sandbox has no
+# tailnet, so it runs with the project's own dev switch (AIM_ALLOW_LOOPBACK=1)
+# and .base44/base44_dev_server.py forwards 0.0.0.0:3000 to that loopback
+# bind. The app's checks are untouched — see AGENTS.md.
+services:
+  server:
+    image: python:3.12-slim
+    working_dir: /app/server
+    restart: on-failure
+    labels:
+      base44.project: "AI Messaging server"
+      base44.kind: "web"
+      base44.port: "3000"
+      base44.docs: "/docs"
+    ports:
+      - "3000:3000" # the launcher's bridge, forwarded to the app's loopback bind
+    volumes:
+      - .:/app # cloned source: edits are live, no rebuild
+      - aim-data:/data # SQLite database (AIM_DB_PATH), never in the repo
+      - pip-cache:/root/.cache/pip
+    environment:
+      # No tailnet here: loopback is the project's documented dev/test mode.
+      AIM_HOST: "127.0.0.1"
+      AIM_PORT: "8422"
+      AIM_ALLOW_LOOPBACK: "1"
+      AIM_DB_PATH: "/data/aim.db"
+      # Sandbox-only knobs read by .base44/base44_dev_server.py
+      AIM_PUBLIC_PORT: "3000"
+      AIM_RELOAD_DIR: "/app/server"
+      PYTHONPATH: "/app/server:/app/.base44"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      # Passed through from the sandbox (never hardcoded to 1 here).
+      BASE44_PREVIEW_MODE:
+    command: ["sh", "-ec", "pip install -e . && exec python /app/.base44/base44_dev_server.py"]
+    healthcheck:
+      # Probes both components of this container: the server and the bridge.
+      test: ["CMD", "python", "/app/.base44/healthcheck.py"]
+      interval: 15s
+      timeout: 8s
+      start_period: 90s
+      retries: 5
+
+volumes:
+  aim-data:
+  pip-cache:
