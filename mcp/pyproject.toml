@@ -10,9 +10,12 @@ license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
     # The lowest versions CI actually installs and tests (the lower-bounds
-    # job): ToolAnnotations and the tool parameter typing this server uses
-    # need 1.14; mcp 1.14 itself needs httpx 0.27.1.
-    "mcp>=1.14",
+    # job). ToolAnnotations and the tool parameter typing this server uses
+    # arrived in 1.14, but mcp up to 1.21.0 imports a private pydantic
+    # helper (eval_type_backport) that pydantic 2.14 removed, and pip pairs
+    # an old mcp with the newest pydantic: 1.21.1 is the first that imports.
+    # It needs httpx 0.27.1.
+    "mcp>=1.21.1",
     "httpx>=0.27.1",
 ]
 
@@ -22,7 +25,7 @@ aim-mcp = "aim_mcp.__main__:run"
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
-    "anyio>=4.5",  # what mcp 1.14 itself needs; the lower-bounds job installs this exact floor
+    "anyio>=4.5",  # what mcp 1.21.1 itself needs; the lower-bounds job installs this exact floor
 ]
 
 [tool.hatch.build.targets.wheel]
