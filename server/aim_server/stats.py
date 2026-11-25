@@ -18,7 +18,10 @@ def compute_stats(conn: sqlite3.Connection) -> dict:  # pylint: disable=too-many
     """Everything the Overview draws, in one read.
 
     Read-only and anonymous like the other listings: it reveals nothing
-    /chats, /messages and /participants do not already. Counts are over
+    /chats, /chats/{id}/messages and /chats/{id}/participants do not
+    already. Memory text is not among them: the memory endpoints give it
+    to participants only (§4.8), so disputed memories come as id, type and
+    time, and the page fetches their text with its own token. Counts are over
     rolling windows (the last 24 h against the 24 h before), so no time
     zone is assumed and a partial "today" never faces a full yesterday.
     Bucket 0 of every hourly series is the hour that began 23 h ago;
@@ -151,7 +154,7 @@ def compute_stats(conn: sqlite3.Connection) -> dict:  # pylint: disable=too-many
     disputed = [
         dict(row)
         for row in conn.execute(
-            "SELECT id, memory_type, content, updated_at FROM memories "
+            "SELECT id, memory_type, updated_at FROM memories "
             "WHERE status = 'DISPUTED' ORDER BY updated_at DESC LIMIT 8"
         )
     ]

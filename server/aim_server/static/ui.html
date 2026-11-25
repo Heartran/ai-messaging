@@ -4357,6 +4357,18 @@ function renderAgentsPanel(stats) {
   }
 }
 
+const disputedText = new Map(); // memory id -> content, read with the token
+async function loadDisputedText(stats) {
+  const ids = stats.memories.disputed.map((m) => m.id);
+  if (!ids.length || !(state.me && state.me.token) || ids.every((id) => disputedText.has(id))) return;
+  try {
+    const params = new URLSearchParams({ participant_id: state.me.participant_id, status: "DISPUTED", limit: "20" });
+    const body = await api("/memories?" + params);
+    for (const m of body.memories) disputedText.set(m.memory_id, m.content);
+    if (ovState.stats === stats) renderMemPanel(stats);
+  } catch { /* the rows keep their id and type */ }
+}
+
 const MEM_TYPES = [
   ["DECISION", "Decisions", 100], ["FACT", "Facts", 70],
   ["CONTEXT", "Context", 45], ["KNOWLEDGE", "Knowledge", 25],
@@ -4400,7 +4412,11 @@ function renderMemPanel(stats) {
   for (const m of stats.memories.disputed.slice(0, 4)) {
     const row = mk("div", "wrow");
     const body = mk("div", "wb");
-    body.append(mk("div", "wn", m.content), mk("div", "ws", `#${m.id} · ${m.memory_type.toLowerCase()} · ${fmtAgo(m.updated_at)}`));
+    // /stats is anonymous and carries no memory text (§4.8): the text comes
+    // from /memories with this page's token, when it has one.
+    const text = disputedText.get(m.id);
+    body.append(mk("div", "wn", text || `Disputed ${MEM_ONE[m.memory_type].toLowerCase()} #${m.id}`),
+      mk("div", "ws", `#${m.id} · ${m.memory_type.toLowerCase()} · ${fmtAgo(m.updated_at)}`));
     row.append(body, mk("span", "chip-warn", "▲ disputed"));
     row.style.cursor = "pointer";
     row.onclick = () => openMemories({ status: "DISPUTED" });
@@ -4475,6 +4491,7 @@ async function loadStats() {
     ovState.stats = stats; ovState.error = null; ovState.at = new Date();
     if (stop) stop();
     for (const id of OV_PANELS) $(id).hidden = false;
+    loadDisputedText(stats);
     renderOverview();
     if (state.chatsLoaded) renderChatList();
     if (state.view === "inbox" && state.me && isParticipant()) renderScope();

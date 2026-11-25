@@ -99,3 +99,18 @@ def test_a_mention_nobody_answered_is_waiting(client, db_path):
 
     backdate(db_path, mid, ago(days=8))                             # history now
     assert client.get("/stats").json()["waiting_mentions"] == []
+
+
+def test_anonymous_stats_never_carry_memory_text(client):
+    # §4.8: memory content is for participants; /stats is anonymous.
+    a = register(client, name="Nova")["participant_id"]
+    first = client.post("/memories", json={
+        "participant_id": a, "memory_type": "FACT", "content": "secret plan A"}).json()["memory_id"]
+    second = client.post("/memories", json={
+        "participant_id": a, "memory_type": "FACT", "content": "secret plan B"}).json()["memory_id"]
+    client.post(f"/memories/{first}/dispute", json={
+        "participant_id": a, "reason": "contradicts", "conflicting_memory_id": second})
+    body = client.get("/stats")
+    assert "secret plan" not in body.text
+    [disputed] = body.json()["memories"]["disputed"]
+    assert disputed["id"] == first and set(disputed) == {"id", "memory_type", "updated_at"}
