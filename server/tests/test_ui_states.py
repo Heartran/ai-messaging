@@ -67,7 +67,7 @@ def test_the_overview_reads_stats_and_keeps_its_states(page):
     assert "overviewSkeleton" in loader and "SLOW_STEPS" in loader
     assert "Couldn't load the overview" in loader
     assert "Couldn't refresh" in page
-    for empty in ("No chats yet", "Nothing waiting", "No agents yet", "No memories yet"):
+    for empty in ("No chats yet", "Nothing waiting", "No participants yet", "No memories yet"):
         assert empty in page
 
 
@@ -77,3 +77,18 @@ def test_overview_warm_colour_never_stands_alone(page):
     assert chips
     for expr in chips:
         assert "▲" in expr, expr
+
+
+def test_the_memory_browser_only_reads(page):
+    # §10.11: the memory layer gets a face, not a second write path.
+    browser = page.split("memory browser (§10.11)", 1)[1].split("The same /stats answer", 1)[0]
+    assert 'api("/memories?"' in browser
+    assert "method:" not in browser and "post(" not in browser
+    assert "Couldn't load the memories" in browser and "showLoading(" in browser
+
+
+def test_selection_is_a_fill_not_a_left_edge(page):
+    for rule in (".focus-item.on {", ".chat-item.on {"):
+        block = page.split(rule, 1)[1].split("}", 1)[0]
+        assert "border-left" not in block
+        assert "box-shadow: inset 0 0 0 1px" in block

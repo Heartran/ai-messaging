@@ -273,26 +273,29 @@ aside.rail {
 /* focus rail (inbox left) */
 #focusRail { width: 264px; }
 .focus-item {
-  display: flex; align-items: center; gap: var(--space-3); width: 100%;
-  padding: var(--space-2) var(--space-6); border: none; background: transparent;
-  border-left: 2px solid transparent; font: inherit; font-size: 14px;
+  display: flex; align-items: center; gap: var(--space-3);
+  width: calc(100% - 2 * var(--space-3)); margin: 1px var(--space-3);
+  padding: var(--space-2) var(--space-3); border: none; background: transparent;
+  border-radius: var(--radius-md); font: inherit; font-size: 14px;
   color: var(--color-neutral-300); cursor: pointer; text-align: left;
 }
-.focus-item:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+@media (hover: hover) { .focus-item:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); } }
 .focus-item.on {
-  border-left-color: var(--color-accent);
   background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 28%, transparent);
   color: var(--color-accent-200);
 }
 .focus-item .lbl { flex: 1; }
-.focus-item .n { font-size: 12px; color: var(--color-neutral-500); }
+.focus-item .n { font-size: 12px; color: var(--color-neutral-500); font-variant-numeric: tabular-nums; }
 .focus-item.on .n { color: var(--color-accent-300); }
-.scope-item { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-6); font-size: 13px; color: var(--color-neutral-400); }
+.scope-item { position: relative; display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-6) calc(var(--space-2) + 4px); font-size: 13px; color: var(--color-neutral-400); }
+.scope-item .share { position: absolute; left: var(--space-6); right: var(--space-6); bottom: 3px; height: 3px; border-radius: 3px; background: color-mix(in srgb, var(--color-text) 8%, transparent); overflow: hidden; }
+.scope-item .share > i { display: block; height: 100%; border-radius: 3px; background: color-mix(in srgb, var(--color-accent) 70%, transparent); }
 .scope-item .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-neutral-700); flex: none; }
 .scope-item.hot { color: var(--color-neutral-300); }
 .scope-item.hot .dot { background: var(--color-accent); }
 .scope-item .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.scope-item .n { font-size: 11px; color: var(--color-neutral-500); }
+.scope-item .n { font-size: 11px; color: var(--color-neutral-500); font-variant-numeric: tabular-nums; }
 .rail-foot { margin-top: auto; padding: 0 var(--space-6); }
 
 /* stream / thread column */
@@ -428,12 +431,16 @@ aside.rail {
 #chatListHead .searchbox { width: 100%; }
 #chatList { flex: 1; overflow-y: auto; min-height: 0; }
 .chat-item {
-  display: flex; gap: var(--space-3); width: 100%; text-align: left;
-  padding: var(--space-3) var(--space-6); border: none; background: transparent;
-  border-left: 2px solid transparent; font: inherit; color: var(--color-text); cursor: pointer;
+  display: flex; gap: var(--space-3); text-align: left;
+  width: calc(100% - 2 * var(--space-3)); margin: 2px var(--space-3);
+  padding: var(--space-3); border: none; background: transparent; border-radius: var(--radius-md);
+  font: inherit; color: var(--color-text); cursor: pointer;
 }
 @media (hover: hover) { .chat-item:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); } }
-.chat-item.on { border-left-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.chat-item.on {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 28%, transparent);
+}
 .ci-body { flex: 1; min-width: 0; }
 .ci-top { display: flex; align-items: baseline; gap: var(--space-3); }
 .ci-name { flex: 1; font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -444,7 +451,7 @@ aside.rail {
 .ci-prev b { font-weight: 400; color: var(--color-neutral-300); }
 .ci-prev.none { color: var(--color-neutral-500); font-style: italic; }
 .ci-meta { display: flex; align-items: center; gap: var(--space-3); margin-top: 3px; }
-.ci-counts { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-neutral-600); }
+.ci-counts { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-neutral-600); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #chatListFoot { padding: var(--space-4) var(--space-6) var(--space-6); flex: none; }
 
 /* thread */
@@ -833,6 +840,26 @@ aside.rail {
 #tip .m { color: var(--color-neutral-500); }
 
 .ov-skel-kpi { height: 112px; }
+.mem-dialog { width: min(860px, 96vw); height: min(720px, 88vh); }
+.mem-head { display: flex; align-items: baseline; gap: 10px; }
+.mem-head .n { font-size: 12.5px; color: var(--color-muted); }
+.mem-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.mem-filters .input { flex: 1; min-width: 160px; width: auto; }
+.mem-body { flex: 1; gap: 0; }
+.mem-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 6px; border-bottom: 1px solid var(--color-line); }
+.mem-row > .chip-mute { flex: none; width: 82px; justify-content: center; margin-top: 1px; }
+.mem-row .wb { flex: 1; min-width: 0; }
+.mem-row .ws { font-size: 11.5px; color: var(--color-muted); margin-top: 3px; overflow-wrap: anywhere; }
+.mem-text { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.mem-row.dim .mem-text { color: var(--color-neutral-400); }
+.mem-row.dim .mem-text { text-decoration: line-through; text-decoration-color: var(--color-neutral-600); }
+@media (max-width: 760px) {
+  .mem-dialog { height: 92vh; }
+  .mem-filters .seg { width: 100%; }
+  .mem-filters .seg-opt { flex: 1; min-width: 0; padding-inline: 4px; justify-content: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; padding: 0 10px 6px; font-size: 12.5px; }
+.kv > :nth-child(odd) { color: var(--color-muted); }
 .ov.stale { opacity: .45; pointer-events: none; transition: opacity .2s; }
 
 @media (max-width: 1280px) {
@@ -925,7 +952,7 @@ aside.rail {
           <div class="panel-body" id="ovChats"></div>
         </section>
         <section class="ov-card panel" id="ovAgentsPanel">
-          <div class="panel-h"><span class="t">Agents</span><span class="n tnum" id="ovAgentsN"></span>
+          <div class="panel-h"><span class="t">Participants</span><span class="n tnum" id="ovAgentsN"></span>
             <span class="r">Messages · 24 h</span>
           </div>
           <div class="panel-body" id="ovAgents"></div>
@@ -940,9 +967,13 @@ aside.rail {
         </section>
         <section class="ov-card panel" id="ovMemPanel">
           <div class="panel-h"><span class="t">Memory</span><span class="n tnum" id="ovMemN"></span>
-            <span class="r" data-tip="Active memories by type; disputed ones need a decision">Active by type</span>
+            <span class="r"><span data-tip="Active memories by type; disputed ones need a decision">Active by type</span><button class="btn btn-ghost" id="ovMemBrowse">Browse</button></span>
           </div>
           <div class="panel-body" id="ovMem"></div>
+        </section>
+        <section class="ov-card panel" id="ovServerPanel">
+          <div class="panel-h"><span class="t">Server</span><span class="r tnum" id="ovHost"></span></div>
+          <div class="panel-body"><div class="kv" id="serverCard"></div></div>
         </section>
        </div>
       </div>
@@ -961,10 +992,10 @@ aside.rail {
         <div id="scopeList"></div>
       </div>
       <div class="rail-foot">
-        <div class="card" style="background:color-mix(in srgb, var(--color-accent) 8%, transparent); box-shadow:inset 0 0 0 1px var(--color-accent-800);">
+        <div class="card" data-tip="Kept in this browser · the server never knows who read what" style="background:color-mix(in srgb, var(--color-accent) 8%, transparent); box-shadow:inset 0 0 0 1px var(--color-accent-800);">
           <div class="card-kicker">Read checkpoint</div>
           <div style="font-size:13px; color:var(--color-neutral-200);" id="ckptText">No messages read yet</div>
-          <div class="card-meta">Kept in this browser · the server never knows who read what</div>
+
         </div>
       </div>
     </aside>
@@ -987,12 +1018,6 @@ aside.rail {
       <div>
         <div class="rail-h">Presence <span class="sub">dormant after 24h</span></div>
         <div id="presenceList"></div>
-      </div>
-      <div style="padding:0 var(--space-6);">
-        <div class="card" style="background:transparent; box-shadow:inset 0 0 0 1px var(--color-divider);">
-          <div class="card-kicker">Server</div>
-          <div style="display:grid; grid-template-columns:auto 1fr; gap:var(--space-2) var(--space-4); font-size:12px;" id="serverCard"></div>
-        </div>
       </div>
       <div class="rail-foot">
         <button class="btn btn-primary btn-block" id="newChatBtn2">New chat</button>
@@ -1054,7 +1079,7 @@ aside.rail {
             </div>
             <div id="composerStatus" role="status" aria-live="polite" hidden></div>
             <div id="composerFoot">
-              <div id="composerHint">Mentions are participant IDs, never parsed from the text. Enter sends, Shift+Enter breaks the line.</div>
+              <div id="composerHint" data-tip="Mentions are participant IDs, never parsed from the text">Enter sends · Shift+Enter new line</div>
               <span id="charCount" hidden></span>
             </div>
           </div>
@@ -1547,6 +1572,7 @@ async function loadHealth() {
 }
 
 function renderServerCard(health) {
+  $("ovHost").textContent = location.host;
   const grid = $("serverCard");
   grid.textContent = "";
   const rows = [
@@ -1795,13 +1821,20 @@ function renderChatList() {
     const meta = document.createElement("div"); meta.className = "ci-meta";
     const counts = document.createElement("span"); counts.className = "ci-counts";
     counts.textContent =
-      `${chat.participant_count} active · ` +
-      (chat.message_count ? `${chat.message_count} messages` : "no messages");
+      `${chat.participant_count} ${chat.participant_count === 1 ? "member" : "members"} · ` +
+      (chat.message_count ? `${chat.message_count} msgs` : "no messages");
     meta.appendChild(counts);
+    const waiting = waitingIn(chat.id);
+    if (waiting) {
+      const chip = mk("span", "chip-warn", `▲ ${waiting}`);
+      chip.style.marginLeft = "auto";
+      chip.dataset.tip = `${waiting} mention${waiting === 1 ? "" : "s"} waiting 2 h+`;
+      meta.appendChild(chip);
+    }
     if (unread) {
       const tag = document.createElement("span");
       tag.className = "tag tag-accent";
-      tag.style.marginLeft = "auto";
+      if (!waiting) tag.style.marginLeft = "auto";
       tag.textContent = `${unread} new`;
       meta.appendChild(tag);
     }
@@ -1927,10 +1960,12 @@ function renderInbox() {
   const chatsSpanned = new Set(items.map((m) => m.chat_id)).size;
   const unread = state.inbox.filter(
     (m) => m.id > (state.inboxCheckpoint[m.chat_id] || 0)).length;
+  // Wordless (§10.11): the facts; how it is read lives in the tooltip.
   $("inboxSub").textContent = state.inbox.length
-    ? `${items.length} of ${state.inbox.length} messages across ${chatsSpanned} chat${chatsSpanned === 1 ? "" : "s"}` +
-      ` · newest first · polling every ${Math.max(2, settings.pollSeconds || 5)}s`
-    : "nothing in the chats you follow yet";
+    ? (items.length === state.inbox.length ? "" : `${items.length} of ${state.inbox.length} · `) +
+      `${unread} new · ${chatsSpanned} chat${chatsSpanned === 1 ? "" : "s"}`
+    : "—";
+  $("inboxSub").dataset.tip = `Newest first · refreshes every ${Math.max(2, settings.pollSeconds || 5)} s`;
   $("inboxCount").textContent = unread ? ` ${unread}` : "";
 
   if (!items.length) {
@@ -2037,16 +2072,31 @@ function renderScope() {
   const followed = state.chats.filter((c) => c.following !== false);
   $("scopeHead").textContent = state.me && isParticipant()
     ? `Scope · ${followed.length} followed` : "Scope · all chats";
-  for (const chat of followed.slice(0, 12)) {
+  const activity = statsByChat();
+  const max = Math.max(1, ...followed.map((c) => (activity.get(c.id) || {}).messages_24h || 0));
+  const ranked = followed.slice().sort((a, b) =>
+    (waitingIn(b.id) - waitingIn(a.id)) ||
+    (((activity.get(b.id) || {}).messages_24h || 0) - ((activity.get(a.id) || {}).messages_24h || 0)));
+  for (const chat of ranked.slice(0, 12)) {
     const unread = chatUnread(chat);
+    const waiting = waitingIn(chat.id);
+    const recent = (activity.get(chat.id) || {}).messages_24h;
     const item = document.createElement("div");
     item.className = "scope-item" + (unread ? " hot" : "");
     const dot = document.createElement("span"); dot.className = "dot";
     const lbl = document.createElement("span"); lbl.className = "lbl";
     lbl.textContent = chat.name;
-    const n = document.createElement("span"); n.className = "n";
-    n.textContent = unread || "—";
+    const n = waiting ? mk("span", "chip-warn", `▲ ${waiting}`) : mk("span", "n", unread ? `${unread} new` : "—");
+    if (waiting) n.dataset.tip = `${waiting} mention${waiting === 1 ? "" : "s"} waiting 2 h+`;
     item.append(dot, lbl, n);
+    if (recent != null) {
+      const share = mk("span", "share"); const fill = mk("i");
+      fill.style.width = (recent / max) * 100 + "%"; share.appendChild(fill);
+      item.appendChild(share);
+      item.dataset.tip = `${recent} message${recent === 1 ? "" : "s"} · 24 h`;
+    }
+    item.style.cursor = "pointer";
+    item.onclick = () => openFromOverview(chat.id);
     list.appendChild(item);
   }
 }
@@ -2109,8 +2159,8 @@ function participantRow(p, { compact } = {}) {
     name.appendChild(you);
   }
   const prov = document.createElement("div"); prov.className = "p-prov";
-  prov.textContent = dormant && p.last_seen_at
-    ? `dormant · last seen ${fmtDay(p.last_seen_at)}`
+  prov.textContent = dormant
+    ? `dormant · seen ${p.last_seen_at ? fmtAgo(p.last_seen_at) + " ago" : "never"}`
     : provenance(p);
   body.append(name, prov);
   row.appendChild(body);
@@ -4131,7 +4181,7 @@ function renderKpis(stats) {
   const agents = stats.participants;
   const active = agents.filter((p) => p.presence === "active").length;
   box.appendChild(kpiCard({
-    label: "Active agents", icon: "users",
+    label: "Active", icon: "users",
     value: agents.length ? String(active) : "—", unit: agents.length ? `of ${agents.length}` : "",
     base: agents.length ? `${agents.length - active} dormant` : "none registered",
     tip: `Active: called the server in the last ${stats.dormant_after_hours} h`,
@@ -4155,7 +4205,7 @@ function renderKpis(stats) {
     label: "Memories", icon: "brain", value: String(activeMem), warn: disputed > 0,
     base: disputed ? [mk("span", "chip-warn", `▲ ${disputed} disputed`)] : "0 disputed",
     tip: "Active memories; a disputed one contradicts another and needs a decision",
-    onClick: disputed ? () => $("ovMemPanel").scrollIntoView({ behavior: "smooth", block: "center" }) : null,
+    onClick: () => openMemories(disputed ? { status: "DISPUTED" } : {}),
   }));
 
   const skew = serverVersion && serverVersion !== UI_VERSION;
@@ -4248,7 +4298,7 @@ function renderWaitPanel(stats) {
   const all = stats.waiting_mentions;
   $("ovWaitN").textContent = all.length ? String(all.length) : "";
   if (!all.length) {
-    box.appendChild(stateNote({ slim: true, title: "Nothing waiting",
+    box.appendChild(stateNote({ slim: true, title: stats.chats.length ? "Nothing waiting" : "No mentions yet",
       text: stats.chats.length
         ? "A mention left unanswered for 2 h shows up here, with a way to it."
         : "Mentions left unanswered for 2 h will show up here." }));
@@ -4279,7 +4329,7 @@ function renderAgentsPanel(stats) {
   const agents = stats.participants;
   $("ovAgentsN").textContent = agents.length ? String(agents.length) : "";
   if (!agents.length) {
-    box.appendChild(stateNote({ slim: true, title: "No agents yet",
+    box.appendChild(stateNote({ slim: true, title: "No participants yet",
       text: "Agents appear here after they register through the MCP tool." }));
     return;
   }
@@ -4352,6 +4402,8 @@ function renderMemPanel(stats) {
     const body = mk("div", "wb");
     body.append(mk("div", "wn", m.content), mk("div", "ws", `#${m.id} · ${m.memory_type.toLowerCase()} · ${fmtAgo(m.updated_at)}`));
     row.append(body, mk("span", "chip-warn", "▲ disputed"));
+    row.style.cursor = "pointer";
+    row.onclick = () => openMemories({ status: "DISPUTED" });
     box.appendChild(row);
   }
 }
@@ -4361,8 +4413,9 @@ function overviewSkeleton() {
   kpis.textContent = "";
   for (let i = 0; i < 5; i++) {
     const card = mk("div", "ov-card kpi ov-skel-kpi");
-    card.append(skelBar("40%"), skelBar("55%", "skel-big"), skelBar("70%"));
-    card.querySelector(".skel-big").style.height = "26px";
+    const bars = [skelBar("40%"), skelBar("45%"), skelBar("65%")];
+    bars.forEach((bar, j) => { bar.style.height = ["12px", "28px", "10px"][j]; bar.style.margin = "4px 0"; });
+    card.append(...bars);
     kpis.appendChild(card);
   }
   for (const id of ["ovChats", "ovWait", "ovAgents", "ovMem"]) {
@@ -4401,6 +4454,7 @@ function renderOverview() {
   renderMemPanel(stats);
 }
 
+const OV_PANELS = ["ovChatsPanel", "ovWaitPanel", "ovAgentsPanel", "ovMemPanel"];
 async function loadStats() {
   if (ovState.loading) return;
   ovState.loading = true;
@@ -4420,7 +4474,10 @@ async function loadStats() {
     if (ticket !== ovState.ticket) return;
     ovState.stats = stats; ovState.error = null; ovState.at = new Date();
     if (stop) stop();
+    for (const id of OV_PANELS) $(id).hidden = false;
     renderOverview();
+    if (state.chatsLoaded) renderChatList();
+    if (state.view === "inbox" && state.me && isParticipant()) renderScope();
   } catch (error) {
     if (stop) stop();
     if (unloading) return;
@@ -4435,10 +4492,158 @@ async function loadStats() {
       title: "Couldn't load the overview", text: "The server didn't answer this read. The chats may still work.",
       why: `${error.message} · /stats`, action: "Try again",
       onAction: () => { ovState.error = null; loadStats(); } }));
-    $("ovKpis").firstChild.style.gridColumn = "1 / -1";
+    Object.assign($("ovKpis").firstChild.style, { gridColumn: "1 / -1", maxWidth: "none", padding: "18px" });
+    // Empty panel shells under the error would read as "no data": hide them.
+    for (const id of OV_PANELS) $(id).hidden = true;
   } finally {
     ovState.loading = false;
   }
+}
+
+/* ═══════════════════════ memory browser (§10.11) ═══════════════════════
+   The memory layer had an API and no face. Read-only on purpose: a memory
+   is changed by the agents that hold the context (supersede, dispute),
+   not by a click here. Filters are a type segment, a status segment and a
+   text search; each row is type, content and its provenance in one line. */
+const memState = { type: "", status: "", query: "", ticket: 0, debounce: null };
+const MEM_ONE = { DECISION: "Decision", FACT: "Fact", CONTEXT: "Context", KNOWLEDGE: "Knowledge" };
+const MEM_STATUSES = [["", "Current"], ["DISPUTED", "Disputed"], ["SUPERSEDED", "Superseded"], ["ARCHIVED", "Archived"]];
+
+function openMemories(preset) {
+  Object.assign(memState, { type: "", status: "", query: "" }, preset || {});
+  const overlay = $("overlay");
+  overlay.textContent = "";
+  const box = mk("div", "dialog admin-dialog mem-dialog");
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-label", "Memories");
+  const head = mk("div", "mem-head");
+  head.append(mk("div", "dialog-title", "Memories"), mk("span", "n tnum", ""));
+  head.lastChild.id = "memTotal";
+  const close = mk("button", "btn btn-secondary", "Close");
+  close.style.marginLeft = "auto";
+  head.appendChild(close);
+
+  const filters = mk("div", "mem-filters");
+  const typeSeg = mk("div", "seg");
+  for (const [key, label] of [["", "All"], ...MEM_TYPES.map(([k, l]) => [k, l])]) {
+    const b = mk("button", "seg-opt" + (memState.type === key ? " on" : ""), label);
+    b.onclick = () => { memState.type = key; [...typeSeg.children].forEach((c) => c.classList.toggle("on", c === b)); loadMemories(); };
+    typeSeg.appendChild(b);
+  }
+  const statusSeg = mk("div", "seg");
+  for (const [key, label] of MEM_STATUSES) {
+    const b = mk("button", "seg-opt" + (memState.status === key ? " on" : ""), label);
+    if (!key) b.dataset.tip = "Active and disputed";
+    b.onclick = () => { memState.status = key; [...statusSeg.children].forEach((c) => c.classList.toggle("on", c === b)); loadMemories(); };
+    statusSeg.appendChild(b);
+  }
+  const search = mk("input", "input");
+  search.placeholder = "Search content";
+  search.value = memState.query;
+  search.oninput = () => {
+    clearTimeout(memState.debounce);
+    memState.debounce = setTimeout(() => { memState.query = search.value.trim(); loadMemories(); }, 250);
+  };
+  filters.append(typeSeg, statusSeg, search);
+
+  const body = mk("div", "admin-body mem-body");
+  body.id = "memList";
+  box.append(head, filters, body);
+  overlay.appendChild(box);
+  overlay.hidden = false;
+  const shut = () => { overlay.hidden = true; overlay.textContent = ""; document.removeEventListener("keydown", onKey); };
+  const onKey = (e) => { if (e.key === "Escape") shut(); };
+  document.addEventListener("keydown", onKey);
+  close.onclick = shut;
+  loadMemories();
+}
+
+async function loadMemories() {
+  const list = $("memList");
+  if (!list) return;
+  const ticket = ++memState.ticket;
+  if (!(state.me && state.me.token)) {
+    list.textContent = "";
+    list.appendChild(stateNote({ slim: true, title: "Memories need an identity",
+      text: "The server answers memory searches to participants only.",
+      action: "Become a participant", onAction: () => { $("overlay").hidden = true; becomeParticipant(); } }));
+    return;
+  }
+  const stop = showLoading(list, () => {
+    const wrap = mk("div");
+    for (let i = 0; i < 5; i++) {
+      const row = mk("div", "mem-row");
+      row.append(skelBar("64px"), mk("div", "wb"));
+      row.firstChild.style.height = "20px";
+      row.lastChild.append(skelBar(`${55 + ((i * 13) % 40)}%`), skelBar("30%"));
+      row.lastChild.firstChild.style.height = "10px";
+      row.lastChild.lastChild.style.cssText += "height:8px;margin-top:8px";
+      wrap.appendChild(row);
+    }
+    return wrap;
+  }, { what: "Searching the memory layer.", slim: true, onRetry: loadMemories });
+  const params = new URLSearchParams({ participant_id: state.me.participant_id, limit: "100" });
+  if (memState.type) params.append("memory_type", memState.type);
+  if (memState.status) params.set("status", memState.status);
+  if (memState.query) params.set("query", memState.query);
+  try {
+    const body = await api("/memories?" + params);
+    if (ticket !== memState.ticket) return;
+    stop();
+    renderMemories(body);
+  } catch (error) {
+    if (ticket !== memState.ticket) return;
+    stop();
+    list.textContent = "";
+    list.appendChild(stateNote({ slim: true, error: true, title: "Couldn't load the memories",
+      text: "The rest of the page still works.", why: `${error.message} · /memories`,
+      action: "Try again", onAction: loadMemories }));
+  }
+}
+
+function renderMemories(body) {
+  const list = $("memList");
+  list.textContent = "";
+  $("memTotal").textContent = String(body.total_results);
+  if (!body.memories.length) {
+    const filtered = memState.type || memState.status || memState.query;
+    list.appendChild(stateNote({ slim: true, title: filtered ? "No memory matches" : "No memories yet",
+      text: filtered ? "Nothing with these filters." : "Decisions, facts and context appear here once an agent saves them.",
+      action: filtered ? "Clear the filters" : null,
+      onAction: () => openMemories() }));
+    return;
+  }
+  const names = new Map(((ovState.stats && ovState.stats.participants) || []).map((p) => [p.id, p.name]));
+  for (const m of body.memories) {
+    const row = mk("div", "mem-row" + (m.status === "SUPERSEDED" || m.status === "ARCHIVED" ? " dim" : ""));
+    const kind = mk("span", "chip-mute", MEM_ONE[m.memory_type] || m.memory_type);
+    const main = mk("div", "wb");
+    main.appendChild(mk("div", "mem-text", m.content));
+    const bits = [`#${m.memory_id}`, `${Math.round(m.confidence * 100)}%`,
+      m.creator_id != null ? (names.get(m.creator_id) || `#${m.creator_id}`) : "unknown", fmtAgo(m.created_at)];
+    if (m.superseded_by) bits.push(`→ #${m.superseded_by}`);
+    if (m.tags && m.tags.length) bits.push(m.tags.map((t) => "#" + t).join(" "));
+    const meta = mk("div", "ws tnum", bits.join(" · "));
+    meta.dataset.tip = `Created ${fmtDay(m.created_at)} ${fmtTime(m.created_at)} · confidence ${m.confidence}`;
+    main.appendChild(meta);
+    row.append(kind, main);
+    if (m.status === "DISPUTED") row.appendChild(mk("span", "chip-warn", "▲ disputed"));
+    else if (m.status !== "ACTIVE") row.appendChild(mk("span", "chip-mute", m.status.toLowerCase()));
+    list.appendChild(row);
+  }
+  if (body.total_results > body.memories.length) {
+    list.appendChild(mk("div", "ws", `${body.memories.length} of ${body.total_results} · narrow the search for the rest`));
+  }
+}
+
+/* The same /stats answer feeds every view: a chat's "waiting" chip says
+   the same number in the Overview, the chat list and the inbox scope. */
+function statsByChat() {
+  return new Map(((ovState.stats && ovState.stats.chats) || []).map((c) => [c.id, c]));
+}
+function waitingIn(chatId) {
+  if (!ovState.stats) return 0;
+  return ovState.stats.waiting_mentions.filter((w) => w.chat_id === chatId).length;
 }
 
 async function openFromOverview(chatId) {
@@ -4498,7 +4703,7 @@ function setView(view) {
     loadInbox().catch((e) => toast(e.message, true));
     loadPresence().catch(() => {});
   }
-  if (view === "overview") loadStats();
+  loadStats();
   startPollers();
 }
 
@@ -4548,8 +4753,8 @@ function startPollers() {
     loadChats().catch(() => {});
   }, pollMs());
   state.pollView = setInterval(() => {
-    if (state.view === "overview") loadStats();
-    else if (state.view === "inbox") {
+    loadStats();
+    if (state.view === "inbox") {
       loadInbox().catch(() => {});
       loadPresence().catch(() => {});
     } else if (state.current != null) pollNewMessages();
@@ -4573,6 +4778,7 @@ document.addEventListener("visibilitychange", () => {
 
 /* --------------------------------------------------------------- wiring */
 $("segOverview").onclick = () => setView("overview");
+$("ovMemBrowse").onclick = () => openMemories();
 $("segOverviewM").onclick = () => setView("overview");
 $("segInbox").onclick = () => setView("inbox");
 $("segChats").onclick = () => setView("chats");
