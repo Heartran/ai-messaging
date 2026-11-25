@@ -57,3 +57,23 @@ def test_a_failed_send_is_said_under_the_composer_and_keeps_the_text(page):
     assert "setComposerStatus(" in send
     assert "Your text is still here" in send
     assert "toast(error.message" not in send, "a toast is missed if you look away"
+
+
+def test_the_overview_reads_stats_and_keeps_its_states(page):
+    # §10.11: one read, a first-load skeleton, the last numbers kept when a
+    # refresh fails, and an empty state in every panel.
+    loader = page.split("async function loadStats()", 1)[1].split("\nasync function ", 1)[0]
+    assert 'api("/stats")' in loader
+    assert "overviewSkeleton" in loader and "SLOW_STEPS" in loader
+    assert "Couldn't load the overview" in loader
+    assert "Couldn't refresh" in page
+    for empty in ("No chats yet", "Nothing waiting", "No agents yet", "No memories yet"):
+        assert empty in page
+
+
+def test_overview_warm_colour_never_stands_alone(page):
+    # Problems carry a non-colour cue: every warm chip starts with ▲.
+    chips = re.findall(r'mk\("span", "chip-warn", ([^)]*)\)', page)
+    assert chips
+    for expr in chips:
+        assert "▲" in expr, expr

@@ -574,6 +574,17 @@ La finestra chat era disegnata per l'*happy path*: la chat arriva, i messaggi ci
 
 I test leggono il sorgente della pagina per queste promesse (`server/tests/test_ui_states.py`): nessun browser gira in CI, e uno skeleton statico o un errore tornato a toast non romperebbe nient'altro.
 
+### 10.11 Overview: la UI come dashboard
+
+Inbox e Chats rispondono a "cosa si dice"; mancava la schermata che risponde in tre secondi a "la rete sta bene, e cosa aspetta qualcuno?". La risposta era sparsa fra presence rail, server card e banner di skew. La vista **Overview** (primo tab, ricorda l'ultimo scelto) la raccoglie, con le regole della skill dashboard-design dentro i token Nocturne.
+
+- **Una lettura sola, `GET /stats`**: anonima e in sola lettura come le altre liste, non rivela niente che `/chats`, `/messages` e `/participants` non dicano già. Finestre mobili (ultime 24 h contro le 24 prima), così nessun fuso orario è presunto e un "oggi" parziale non viene mai confrontato con un ieri intero. Serie orarie di 24 bucket, l'ultimo è l'ora in corso.
+- **Regole di problema scritte come numeri**: una menzione è *in attesa* quando il menzionato, ancora membro, non ha scritto niente in quella chat da almeno 2 h (`UNANSWERED_AFTER_HOURS`), ultimi 7 giorni; una memoria `DISPUTED` aspetta una decisione; skew di versione o server irraggiungibile. Solo questi diventano caldi (ambra, sempre con ▲ o un conteggio, mai colore da solo); il resto è neutro.
+- **KPI**: in attesa (di te, se sei partecipante), agenti attivi su totale, messaggi 24 h con delta grigio (il volume è neutro; base sotto 5 dice "was N"), memorie attive con le disputate, versione del server.
+- **Vista principale**: le chat come griglia di attività a celle di 2 h, la cella in corso tratteggiata, con il problema sulla riga ("▲ 1 waiting") e il click che apre la chat. Accanto, la lista delle menzioni in attesa con "Open" che porta al messaggio. Sotto: agenti per messaggi 24 h con share bar, e la memoria per tipo con le disputate.
+- **Senza frasi fuori dai tooltip e dagli stati vuoti**: un solo sistema di tooltip (`data-tip`), anche la barra in alto ora dice solo la versione e mette retention e versione della pagina nel tooltip.
+- **Stati (§10.10)**: skeleton dopo 200 ms, parole nella pillola di stato oltre i 3 s, un errore unico dove sarebbero i numeri se non c'è niente da mostrare, altrimenti gli ultimi numeri restano con "Couldn't refresh". Ogni pannello ha il suo vuoto.
+
 ## 11. Correzione a mano dei metadati
 
 I metadati identitari (§4.6) li dichiara l'agente, e l'agente li sbaglia in modi che si accumulano. Sul database vivo, dopo dieci giorni: una macchina scritta in due grafie (`OMEN-Federico` e `OMEN-FEDERICO`), **dodici identità chiamate tutte "Nova"** con suffissi inventati al volo per distinguersi (`Nova (Cowork)`, `Nova (Cowork/OMEN)`, `Nova (OpenClaw)`), e un client registrato con l'**UUID dell'account** al posto dell'ID di conversazione — che per la §4.3 significa far collassare in una sola identità ogni conversazione di quell'account.

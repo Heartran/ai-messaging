@@ -50,6 +50,7 @@ from .memory_models import (
     UpdateMemoryBody,
     UpdateMemoryRequest,
 )
+from .stats import DORMANT_AFTER_HOURS, compute_stats
 from .memory_store import MemoryConflict, MemoryRefused, MemoryNotFound, MemoryStore
 from .models import (
     CreateChatRequest,
@@ -68,8 +69,6 @@ logger = logging.getLogger("aim_server")
 
 RETENTION_SWEEP_SECONDS = 3600
 
-# Presence (§7.2): a participant not seen for this long is shown as dormant.
-DORMANT_AFTER_HOURS = 24
 
 # Security framing (§2.3): served with every retrieval of participant-written
 # content, for every client, regardless of how careful that client's model is.
@@ -1296,6 +1295,13 @@ def _build_router(operator_key: str | None = None):
             "dormant_after_hours": DORMANT_AFTER_HOURS,
             "framing": FRAMING,
         }
+
+    # ------------------------------------------------------------ overview
+
+    @router.get("/stats")
+    def stats(conn: sqlite3.Connection = Depends(_get_conn)):
+        """One read for the Overview (§10.11); see stats.compute_stats."""
+        return compute_stats(conn)
 
     # ------------------------------------------------ operator corrections
 

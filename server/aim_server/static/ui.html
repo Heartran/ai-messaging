@@ -714,14 +714,160 @@ aside.rail {
     max-height: 80vh; border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   }
 }
+
+/* ══════════════════════ overview (§10.11) ══════════════════════
+   The dashboard view: one question at first glance, "is the network OK
+   right now, and what is waiting on someone?". Rules from the
+   dashboard-design skill, kept inside Nocturne:
+   - quiet: neutrals and the accent for healthy data, the warm hue only
+     on what needs a person, always paired with a non-colour cue (▲ or a
+     count chip), never red/green alone;
+   - message volume is neutral, so its delta stays grey both ways;
+   - wordless: names, numbers, one- or two-word baselines; explanations
+     live in tooltips (data-tip);
+   - every panel has its own loading, empty and error state (§10.10).
+   Deviation from the skill's house style: dark-only, because Nocturne is
+   (the page has no light theme to keep in step). */
+:root {
+  --color-warn: #e8a94a;
+  --color-warn-ink: #f6d7a6;
+  --color-card: color-mix(in srgb, var(--color-surface) 78%, var(--color-bg));
+  --color-line: color-mix(in srgb, var(--color-text) 8%, transparent);
+  --color-muted: var(--color-neutral-500);
+}
+.tnum { font-variant-numeric: tabular-nums; }
+#overviewView { flex-direction: column; overflow-y: auto; }
+.ov { width: 100%; max-width: 1640px; margin: 0 auto; padding: var(--space-6) var(--space-8) var(--space-8); display: flex; flex-direction: column; gap: 16px; }
+.ov-head { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+.ov-head h1 { margin: 0; font-family: var(--font-heading); font-weight: 600; font-size: 22px; letter-spacing: -0.015em; flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 999px; font-size: 12.5px; color: var(--color-neutral-300); box-shadow: inset 0 0 0 1px var(--color-divider); white-space: nowrap; }
+.pill .live { width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent); }
+.pill.stale .live { background: var(--color-neutral-600); }
+.pill.err { color: var(--color-warn-ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-warn) 45%, transparent); }
+.pill.err .live { background: var(--color-warn); }
+
+.ov-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+.ov-card { background: var(--color-card); border-radius: var(--radius-lg); box-shadow: inset 0 0 0 1px var(--color-line); min-width: 0; }
+.kpi { padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; }
+.kpi-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--color-neutral-400); }
+.kpi-ico { width: 26px; height: 26px; border-radius: var(--radius-md); display: grid; place-items: center; color: var(--color-neutral-400); box-shadow: inset 0 0 0 1px var(--color-line); flex: none; }
+.kpi-val { font-size: 30px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi-val small { font-size: 14px; font-weight: 400; color: var(--color-muted); letter-spacing: 0; margin-left: 4px; }
+.kpi-base { font-size: 12px; color: var(--color-muted); display: flex; align-items: center; gap: 6px; min-height: 18px; white-space: nowrap; overflow: hidden; }
+.kpi.warn { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-warn) 55%, transparent); }
+.kpi.warn .kpi-val { color: var(--color-warn-ink); }
+.kpi.warn .kpi-ico { color: var(--color-warn); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-warn) 40%, transparent); }
+.kpi.clickable { cursor: pointer; }
+@media (hover: hover) { .kpi.clickable:hover { background: color-mix(in srgb, var(--color-text) 4%, var(--color-card)); } }
+.spark { display: block; width: 100%; height: 28px; }
+.delta { font-size: 12px; font-weight: 500; color: var(--color-neutral-400); font-variant-numeric: tabular-nums; }
+.chip-warn { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 999px; font-size: 11.5px; font-weight: 500; color: var(--color-warn-ink); background: color-mix(in srgb, var(--color-warn) 18%, transparent); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.chip-mute { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 999px; font-size: 11.5px; color: var(--color-neutral-400); box-shadow: inset 0 0 0 1px var(--color-line); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Two stacked columns: the monitor (chats, agents) left, what needs a
+   person (waiting, memory) right, so neither column leaves a hole. */
+.ov-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 16px; align-items: start; }
+.ov-colL, .ov-colR { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.panel { display: flex; flex-direction: column; min-height: 0; }
+.panel-h { display: flex; align-items: baseline; gap: 10px; padding: 14px 18px 8px; }
+.panel-h .t { font-size: 15px; font-weight: 600; }
+.panel-h .n { font-size: 12.5px; color: var(--color-muted); }
+.panel-h .r { margin-left: auto; font-size: 12px; color: var(--color-muted); display: flex; align-items: center; gap: 10px; }
+.panel-body { padding: 0 8px 10px; min-height: 0; }
+.panel .state-note { padding: var(--space-6) 12px; }
+
+.legend { display: inline-flex; align-items: center; gap: 4px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+
+/* chat activity grid: the monitor view */
+.cgrid-row { display: grid; grid-template-columns: minmax(110px, 1.1fr) minmax(0, 2.4fr) 48px minmax(84px, auto); align-items: center; gap: 12px; height: 44px; padding: 0 10px; border-radius: var(--radius-md); cursor: pointer; width: 100%; border: none; background: transparent; font: inherit; color: inherit; text-align: left; }
+@media (hover: hover) { .cgrid-row:hover { background: color-mix(in srgb, var(--color-text) 5%, transparent); } }
+.cgrid-head { cursor: default; height: 26px; font-size: 11.5px; color: var(--color-muted); }
+.cgrid-head:hover { background: transparent !important; }
+.cname { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cname small { display: block; font-size: 11.5px; font-weight: 400; color: var(--color-muted); }
+.cells { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 4px; }
+.cell { height: 22px; border-radius: 6px; background: color-mix(in srgb, var(--color-text) 3%, transparent); }
+.cell.t1 { background: color-mix(in srgb, var(--color-accent) 24%, transparent); }
+.cell.t2 { background: color-mix(in srgb, var(--color-accent) 48%, transparent); }
+.cell.t3 { background: color-mix(in srgb, var(--color-accent) 78%, transparent); }
+/* the current two hours are unfinished: dashed, like any open period */
+.cell.now { outline: 1px dashed color-mix(in srgb, var(--color-accent) 60%, transparent); outline-offset: -1px; }
+.cells-axis { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 4px; font-size: 10.5px; color: var(--color-muted); }
+.cells-axis span { text-align: center; }
+.cells-axis span.now { color: var(--color-accent-300); }
+.cnum { text-align: right; font-size: 13.5px; font-variant-numeric: tabular-nums; color: var(--color-neutral-300); }
+.cflags { display: flex; justify-content: flex-end; gap: 6px; }
+
+/* ranked rows with a 3 px share bar along the bottom edge */
+.rrow { position: relative; display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 10px 4px; border-radius: var(--radius-md); }
+@media (hover: hover) { .rrow.link:hover { background: color-mix(in srgb, var(--color-text) 5%, transparent); cursor: pointer; } }
+.rrow .rb { flex: 1; min-width: 0; }
+.rrow .rn { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rrow .rs { font-size: 11.5px; color: var(--color-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rrow .rv { font-size: 13.5px; font-variant-numeric: tabular-nums; color: var(--color-neutral-300); text-align: right; min-width: 32px; }
+.rrow .share { position: absolute; left: 10px; right: 10px; bottom: 3px; height: 3px; border-radius: 3px; background: var(--color-line); overflow: hidden; }
+.rrow .share > i { display: block; height: 100%; border-radius: 3px; background: color-mix(in srgb, var(--color-accent) 75%, transparent); }
+.rrow.dim .rn { color: var(--color-neutral-400); }
+.pdot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--color-accent); }
+.pdot.off { background: transparent; box-shadow: inset 0 0 0 1.5px var(--color-neutral-600); }
+
+/* waiting mentions */
+.wrow { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 10px; border-radius: var(--radius-md); }
+@media (hover: hover) { .wrow:hover { background: color-mix(in srgb, var(--color-text) 5%, transparent); } }
+.wrow .wb { flex: 1; min-width: 0; }
+.wrow .wn { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wrow .ws { font-size: 11.5px; color: var(--color-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* memory: segmented share bar + disputed list */
+.segbar { display: flex; gap: 4px; height: 10px; margin: 4px 10px 10px; }
+.segbar > i { display: block; height: 100%; border-radius: 999px; min-width: 6px; }
+.seglegend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 0 10px 10px; font-size: 12px; color: var(--color-neutral-400); }
+.seglegend span { display: inline-flex; align-items: center; gap: 6px; }
+.seglegend b { font-weight: 500; color: var(--color-text); font-variant-numeric: tabular-nums; }
+.seglegend i { width: 8px; height: 8px; border-radius: 3px; display: inline-block; }
+
+/* one tooltip for the whole screen */
+#tip { position: fixed; z-index: 90; pointer-events: none; max-width: 280px; padding: 8px 10px; border-radius: 9px; background: #0d0e16; color: var(--color-neutral-100); font-size: 12px; line-height: 1.45; box-shadow: 0 10px 28px rgba(0,0,0,.5), 0 0 0 1px var(--color-neutral-800); }
+#tip b { display: block; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+#tip .m { color: var(--color-neutral-500); }
+
+.ov-skel-kpi { height: 112px; }
+.ov.stale { opacity: .45; pointer-events: none; transition: opacity .2s; }
+
+@media (max-width: 1280px) {
+  .ov-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ov-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 1280px) and (min-width: 761px) {
+  .ov-kpis > :last-child:nth-child(3n + 2) { grid-column: span 2; }
+}
+@media (min-width: 112.5rem) {
+  .ov-grid { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .ov { padding: 14px 16px 20px; gap: 12px; }
+  .ov-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .ov-kpis > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .ov-head [data-range] { display: none; }
+  .kpi { padding: 12px 14px; }
+  .kpi-val { font-size: 24px; }
+  .kpi-ico { display: none; }
+  .cgrid-row { grid-template-columns: minmax(0, 1fr) 40px auto; height: auto; min-height: 44px; row-gap: 6px; padding: 8px 10px; }
+  .cgrid-row .cells, .cgrid-head .cells-axis { grid-column: 1 / -1; grid-row: 2; }
+  .cgrid-head { display: none; }
+  .cell { height: 16px; }
+}
 </style>
 </head>
 <body>
 <div id="app">
+<div id="tip" role="tooltip" hidden></div>
 
   <div id="topbar">
     <div class="brand"><span class="tick"></span><span class="name">AI Messaging</span></div>
     <div class="seg" id="viewSeg">
+      <button class="seg-opt" id="segOverview">Overview<span id="ovCount" style="font-size:11px; opacity:.8;"></span></button>
       <button class="seg-opt" id="segInbox">Inbox<span id="inboxCount" style="font-size:11px; opacity:.8;"></span></button>
       <button class="seg-opt" id="segChats">Chats</button>
     </div>
@@ -729,8 +875,8 @@ aside.rail {
     <div id="serverStatus">
       <span id="statusDot"></span>
       <span id="statusText">connecting…</span>
-      <span class="vbar"></span>
-      <span id="retentionText"></span>
+      <span class="vbar" hidden></span>
+      <span id="retentionText" hidden></span>
     </div>
     <div class="seg" id="modeSeg" title="Change in Settings">
       <button class="seg-opt" id="segObserver">Observer</button>
@@ -759,6 +905,48 @@ aside.rail {
       <div class="t2" id="unreachDetail"></div>
     </div>
     <button class="btn btn-secondary" id="retryBtn">Retry now</button>
+  </div>
+
+  <!-- ═════════════ OVERVIEW (§10.11) ═════════════ -->
+  <div class="view" id="overviewView" hidden>
+    <div class="ov" id="ov">
+      <div class="ov-head">
+        <h1>Overview</h1>
+        <span class="pill" data-range data-tip="Rolling window: the last 24 hours against the 24 before">Last 24 h</span>
+        <span class="pill" id="ovUpdated"><span class="live"></span><span id="ovUpdatedText">Loading</span></span>
+      </div>
+      <div class="ov-kpis" id="ovKpis"></div>
+      <div class="ov-grid">
+       <div class="ov-colL">
+        <section class="ov-card panel" id="ovChatsPanel">
+          <div class="panel-h"><span class="t">Chats</span><span class="n tnum" id="ovChatsN"></span>
+            <span class="r"><span class="legend" data-tip="Messages per 2 hours: pale 1–2, medium 3–9, strong 10+"><i style="background:color-mix(in srgb,var(--color-accent) 24%,transparent)"></i><i style="background:color-mix(in srgb,var(--color-accent) 48%,transparent)"></i><i style="background:color-mix(in srgb,var(--color-accent) 78%,transparent)"></i>Messages / 2 h</span></span>
+          </div>
+          <div class="panel-body" id="ovChats"></div>
+        </section>
+        <section class="ov-card panel" id="ovAgentsPanel">
+          <div class="panel-h"><span class="t">Agents</span><span class="n tnum" id="ovAgentsN"></span>
+            <span class="r">Messages · 24 h</span>
+          </div>
+          <div class="panel-body" id="ovAgents"></div>
+        </section>
+       </div>
+       <div class="ov-colR">
+        <section class="ov-card panel" id="ovWaitPanel">
+          <div class="panel-h"><span class="t">Waiting</span><span class="n tnum" id="ovWaitN"></span>
+            <span class="r" data-tip="Mentions the mentioned member has not answered in that chat for 2 h or more (last 7 days)">Mentions · 2 h+</span>
+          </div>
+          <div class="panel-body" id="ovWait"></div>
+        </section>
+        <section class="ov-card panel" id="ovMemPanel">
+          <div class="panel-h"><span class="t">Memory</span><span class="n tnum" id="ovMemN"></span>
+            <span class="r" data-tip="Active memories by type; disputed ones need a decision">Active by type</span>
+          </div>
+          <div class="panel-body" id="ovMem"></div>
+        </section>
+       </div>
+      </div>
+    </div>
   </div>
 
   <!-- ═════════════ INBOX ═════════════ -->
@@ -892,6 +1080,7 @@ aside.rail {
 
   <div id="bottomSeg">
     <div class="seg">
+      <button class="seg-opt" id="segOverviewM">Overview</button>
       <button class="seg-opt" id="segInboxM">Inbox</button>
       <button class="seg-opt" id="segChatsM">Chats</button>
     </div>
@@ -1280,6 +1469,8 @@ function modal({ title, text, fields, note, submit, danger, onSubmit, onCancel }
 /* ------------------------------------------------- health & diagnostics */
 let unreachableSince = null;
 let retention = "";
+let retentionDays = 0;   // from /health, for the Overview
+let serverVersion = null;
 // Whether this server has an operator key configured at all (§11).
 let serverEditing = false;
 
@@ -1304,8 +1495,13 @@ async function loadHealth() {
     unreachableSince = null;
     $("unreachBanner").hidden = true;
     $("statusDot").classList.remove("err");
-    $("statusText").textContent = `server v${health.version} · ui v${UI_VERSION}`;
+    // Wordless top bar: the version; the rest in its tooltip (§10.11).
+    $("statusText").textContent = `v${health.version}`;
+    $("serverStatus").dataset.tip = `Server v${health.version} · page v${UI_VERSION}`;
+    $("serverStatus").dataset.tipM = health.retention.policy;
     retention = health.retention.policy;
+    retentionDays = health.retention.days || 0;
+    serverVersion = health.version;
     $("retentionText").textContent = retention;
     serverEditing = !!health.editing_enabled;
     $("adminBtn").hidden = !serverEditing;
@@ -3841,11 +4037,460 @@ function chatEditor(chat, body) {
 }
 
 /* ----------------------------------------------------------- view/mode */
+/* ═══════════════════════════ overview (§10.11) ═══════════════════════════
+   One read (/stats), four panels and a KPI row. Problems are flagged where
+   they appear (a waiting chip on the chat's row, a warm KPI) with the
+   action beside them. Each panel loads, empties and fails on its own, and a
+   failed refresh keeps the last numbers on screen, dimmed only while the
+   first load is pending (§10.10). */
+const ovState = { stats: null, error: null, loading: false, stop: null, at: null, ticket: 0 };
+
+const ICONS = {
+  at: '<svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24a104,104,0,0,0,0,208c21.51,0,44.1-6.48,60.43-17.33a8,8,0,0,0-8.86-13.33C166,210.38,146.21,216,128,216a88,88,0,1,1,88-88c0,26.45-10.88,32-20,32s-20-5.55-20-32V88a8,8,0,0,0-16,0v4.26a48,48,0,1,0,5.93,65.1c6,12,16.35,18.64,30.07,18.64,22.54,0,36-17.94,36-48A104.11,104.11,0,0,0,128,24Zm0,136a32,32,0,1,1,32-32A32,32,0,0,1,128,160Z"/></svg>',
+  users: '<svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M117.25,157.92a60,60,0,1,0-66.5,0A95.83,95.83,0,0,0,3.53,195.63a8,8,0,1,0,13.4,8.74,80,80,0,0,1,134.14,0,8,8,0,0,0,13.4-8.74A95.83,95.83,0,0,0,117.25,157.92ZM40,108a44,44,0,1,1,44,44A44.05,44.05,0,0,1,40,108Zm210.14,98.7a8,8,0,0,1-11.07-2.33A79.83,79.83,0,0,0,172,168a8,8,0,0,1,0-16,44,44,0,1,0-16.34-84.87,8,8,0,1,1-5.94-14.85,60,60,0,0,1,55.53,105.64,95.83,95.83,0,0,1,47.22,37.71A8,8,0,0,1,250.14,206.7Z"/></svg>',
+  chat: '<svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M216,48H40A16,16,0,0,0,24,64V224a15.85,15.85,0,0,0,9.24,14.5A16.13,16.13,0,0,0,40,240a15.89,15.89,0,0,0,10.25-3.78l.09-.07L83,208H216a16,16,0,0,0,16-16V64A16,16,0,0,0,216,48Zm0,144H80a8,8,0,0,0-5.23,1.95L40,224V64H216Z"/></svg>',
+  brain: '<svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M248,124a56.11,56.11,0,0,0-32-50.61V72a48,48,0,0,0-88-26.49A48,48,0,0,0,40,72v1.39a56,56,0,0,0,0,101.2V176a48,48,0,0,0,88,26.49A48,48,0,0,0,216,176v-1.41A56.09,56.09,0,0,0,248,124ZM88,208a32,32,0,0,1-31.81-28.56A55.87,55.87,0,0,0,64,180h8a8,8,0,0,0,0-16H64A40,40,0,0,1,50.67,86.27,8,8,0,0,0,56,78.73V72a32,32,0,0,1,64,0v68.26A47.8,47.8,0,0,0,88,128a8,8,0,0,0,0,16,32,32,0,0,1,0,64Zm104-44h-8a8,8,0,0,0,0,16h8a55.87,55.87,0,0,0,7.81-.56A32,32,0,1,1,168,144a8,8,0,0,0,0-16,47.8,47.8,0,0,0-32,12.26V72a32,32,0,0,1,64,0v6.73a8,8,0,0,0,5.33,7.54A40,40,0,0,1,192,164Z"/></svg>',
+  server: '<svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M208,40H48A16,16,0,0,0,32,56v48a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V56A16,16,0,0,0,208,40Zm0,64H48V56H208v48Zm0,32H48a16,16,0,0,0-16,16v48a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V152A16,16,0,0,0,208,136Zm0,64H48V152H208v48ZM192,80a12,12,0,1,1-12-12A12,12,0,0,1,192,80Zm0,96a12,12,0,1,1-12-12A12,12,0,0,1,192,176Z"/></svg>',
+};
+
+function fmtAgo(ts) {
+  if (!ts) return "—";
+  const mins = Math.max(0, Math.round((Date.now() - parseTS(ts).getTime()) / 60000));
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) return `${hours} h`;
+  return `${Math.floor(hours / 24)} d`;
+}
+function fmtCount(n) {
+  if (n == null) return "—";
+  return n >= 10000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1).replace(/\.0$/, "") + "k" : String(n);
+}
+/* Volume is neutral: the delta is grey both ways. A base under 5 says
+   "was N" instead of a percentage (a 1 → 3 is not +200% of anything). */
+function volumeDelta(now, before) {
+  if (before < 5) return { text: `was ${before}`, tip: `Previous 24 h: ${before}` };
+  const pct = Math.round(((now - before) / before) * 100);
+  const arrow = pct > 0 ? "▲" : pct < 0 ? "▼" : "±";
+  const shown = Math.abs(pct) > 999 ? "10×+" : `${Math.abs(pct)}%`;
+  return { text: `${arrow} ${shown}`, tip: `Previous 24 h: ${before}` };
+}
+function sparkline(values) {
+  const w = 120, h = 28, max = Math.max(1, ...values);
+  const step = w / (values.length - 1 || 1);
+  const pts = values.map((v, i) => [i * step, h - 2 - (v / max) * (h - 4)]);
+  const line = pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join("");
+  // The last bucket is the current, unfinished hour: drawn dashed.
+  const [lx, ly] = pts[pts.length - 2] || pts[0];
+  const [ex, ey] = pts[pts.length - 1];
+  const solid = line.split("L").slice(0, -1).join("L");
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+    <path d="${line}L${w},${h}L0,${h}Z" fill="color-mix(in srgb, var(--color-accent) 12%, transparent)"/>
+    <path d="${solid}" fill="none" stroke="var(--color-neutral-400)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+    <path d="M${lx.toFixed(1)},${ly.toFixed(1)}L${ex.toFixed(1)},${ey.toFixed(1)}" fill="none" stroke="var(--color-neutral-400)" stroke-width="1.5" stroke-dasharray="2 2" vector-effect="non-scaling-stroke"/>
+  </svg>`;
+}
+
+function kpiCard({ label, icon, value, unit, base, warn, tip, onClick }) {
+  const card = mk("div", "ov-card kpi" + (warn ? " warn" : "") + (onClick ? " clickable" : ""));
+  if (tip) card.dataset.tip = tip;
+  if (onClick) { card.tabIndex = 0; card.setAttribute("role", "button"); card.onclick = onClick;
+    card.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }; }
+  const top = mk("div", "kpi-top");
+  top.appendChild(mk("span", null, label));
+  const ico = mk("span", "kpi-ico"); ico.innerHTML = ICONS[icon]; top.appendChild(ico);
+  const val = mk("div", "kpi-val", value);
+  if (unit) val.appendChild(mk("small", null, unit));
+  const b = mk("div", "kpi-base");
+  if (typeof base === "string") b.textContent = base; else if (base) b.append(...[].concat(base));
+  card.append(top, val, b);
+  return card;
+}
+
+function myWaiting(stats) {
+  const me = state.me && isParticipant() ? state.me.participant_id : null;
+  return me == null ? stats.waiting_mentions
+    : stats.waiting_mentions.filter((w) => w.mentioned_id === me);
+}
+
+function renderKpis(stats) {
+  const box = $("ovKpis");
+  box.textContent = "";
+  const mine = state.me && isParticipant();
+  const waiting = myWaiting(stats);
+  const oldest = waiting[0];
+  box.appendChild(kpiCard({
+    label: mine ? "Waiting on you" : "Waiting", icon: "at",
+    value: String(waiting.length), warn: waiting.length > 0,
+    base: oldest ? [mk("span", "chip-warn", "▲ oldest " + fmtAgo(oldest.created_at))] : "mentions · 2 h+",
+    tip: mine ? "Mentions of you, unanswered in their chat for 2 h or more"
+              : "Mentions unanswered in their chat for 2 h or more",
+    onClick: waiting.length ? () => goToWaiting(oldest) : null,
+  }));
+
+  const agents = stats.participants;
+  const active = agents.filter((p) => p.presence === "active").length;
+  box.appendChild(kpiCard({
+    label: "Active agents", icon: "users",
+    value: agents.length ? String(active) : "—", unit: agents.length ? `of ${agents.length}` : "",
+    base: agents.length ? `${agents.length - active} dormant` : "none registered",
+    tip: `Active: called the server in the last ${stats.dormant_after_hours} h`,
+  }));
+
+  const m = stats.messages;
+  const delta = volumeDelta(m.last_24h, m.previous_24h);
+  const card = kpiCard({
+    label: "Messages", icon: "chat", value: fmtCount(m.last_24h),
+    base: [mk("span", "delta", delta.text), mk("span", null, "vs prev 24 h")],
+    tip: `${m.last_24h} in the last 24 h · ${delta.tip}`,
+  });
+  const spark = mk("div"); spark.innerHTML = sparkline(m.hourly);
+  card.appendChild(spark.firstElementChild);
+  box.appendChild(card);
+
+  const counts = stats.memories.counts;
+  const activeMem = Object.values(counts).reduce((s, c) => s + c.ACTIVE, 0);
+  const disputed = Object.values(counts).reduce((s, c) => s + c.DISPUTED, 0);
+  box.appendChild(kpiCard({
+    label: "Memories", icon: "brain", value: String(activeMem), warn: disputed > 0,
+    base: disputed ? [mk("span", "chip-warn", `▲ ${disputed} disputed`)] : "0 disputed",
+    tip: "Active memories; a disputed one contradicts another and needs a decision",
+    onClick: disputed ? () => $("ovMemPanel").scrollIntoView({ behavior: "smooth", block: "center" }) : null,
+  }));
+
+  const skew = serverVersion && serverVersion !== UI_VERSION;
+  box.appendChild(kpiCard({
+    label: "Server", icon: "server", value: serverVersion ? `v${serverVersion}` : "—",
+    warn: skew || !!unreachableSince,
+    base: unreachableSince ? [mk("span", "chip-warn", "▲ unreachable")]
+      : skew ? [mk("span", "chip-warn", `▲ page v${UI_VERSION}`)]
+      : (retentionDays ? `in sync · ${retentionDays} d retention` : "in sync · kept forever"),
+    tip: retention || "",
+  }));
+}
+
+/* 24 hourly counts → 12 two-hour cells; tiers 1–2, 3–9, 10+. */
+function twoHourly(hourly) {
+  const out = [];
+  for (let i = 0; i < 24; i += 2) out.push(hourly[i] + hourly[i + 1]);
+  return out;
+}
+function tier(n) { return n >= 10 ? "t3" : n >= 3 ? "t2" : n >= 1 ? "t1" : ""; }
+function bucketLabel(stats, i) {
+  const start = new Date(parseTS(stats.hour_start).getTime() + i * 2 * 3600000);
+  return start.toLocaleTimeString([], { hour: "numeric" });
+}
+
+function renderChatsPanel(stats) {
+  const box = $("ovChats");
+  box.textContent = "";
+  $("ovChatsN").textContent = stats.chats.length ? String(stats.chats.length) : "";
+  if (!stats.chats.length) {
+    box.appendChild(stateNote({ slim: true, title: "No chats yet",
+      text: "Chats appear here once an agent creates one.",
+      action: "New chat", onAction: createChatFlow }));
+    return;
+  }
+  const waitingBy = new Map();
+  for (const w of stats.waiting_mentions) waitingBy.set(w.chat_id, (waitingBy.get(w.chat_id) || 0) + 1);
+  const rows = [...stats.chats].sort((a, b) =>
+    (waitingBy.get(b.id) || 0) - (waitingBy.get(a.id) || 0) ||
+    b.messages_24h - a.messages_24h ||
+    (b.last_message_at || "").localeCompare(a.last_message_at || ""));
+
+  const head = mk("div", "cgrid-row cgrid-head");
+  head.appendChild(mk("span", null, "Chat"));
+  const axis = mk("div", "cells-axis");
+  for (let i = 0; i < 12; i++) {
+    const s = mk("span", i === 11 ? "now" : null, i === 11 ? "now" : i % 3 === 0 ? bucketLabel(stats, i) : "");
+    axis.appendChild(s);
+  }
+  head.append(axis, mk("span", "cnum", "24 h"), mk("span", "cnum", ""));
+  box.appendChild(head);
+
+  const LIMIT = 8;
+  for (const chat of rows.slice(0, LIMIT)) {
+    const row = mk("button", "cgrid-row");
+    row.onclick = () => openFromOverview(chat.id);
+    const name = mk("div", "cname", chat.name);
+    name.appendChild(mk("small", null,
+      `${chat.member_count} ${chat.member_count === 1 ? "member" : "members"} · ${chat.last_message_at ? fmtAgo(chat.last_message_at) : "no messages"}`));
+    const cells = mk("div", "cells");
+    twoHourly(chat.hourly).forEach((n, i) => {
+      const c = mk("i", "cell " + tier(n) + (i === 11 ? " now" : ""));
+      c.dataset.tip = `${n} message${n === 1 ? "" : "s"}`;
+      c.dataset.tipM = `${chat.name} · from ${bucketLabel(stats, i)}${i === 11 ? " (so far)" : ""}`;
+      c.dataset.tipV = String(n);
+      cells.appendChild(c);
+    });
+    const flags = mk("div", "cflags");
+    const waiting = waitingBy.get(chat.id) || 0;
+    if (waiting) flags.appendChild(mk("span", "chip-warn", `▲ ${waiting} waiting`));
+    else if (chat.dormant_members) {
+      const chip = mk("span", "chip-mute", `${chat.dormant_members} dormant`);
+      chip.dataset.tip = `Members not seen in ${stats.dormant_after_hours} h`;
+      flags.appendChild(chip);
+    }
+    row.append(name, cells, mk("span", "cnum", chat.messages_24h ? String(chat.messages_24h) : "—"), flags);
+    box.appendChild(row);
+  }
+  if (rows.length > LIMIT) {
+    const more = mk("button", "btn btn-ghost", `All ${rows.length} chats`);
+    more.style.margin = "4px 10px 0";
+    more.onclick = () => setView("chats");
+    box.appendChild(more);
+  }
+}
+
+function renderWaitPanel(stats) {
+  const box = $("ovWait");
+  box.textContent = "";
+  const all = stats.waiting_mentions;
+  $("ovWaitN").textContent = all.length ? String(all.length) : "";
+  if (!all.length) {
+    box.appendChild(stateNote({ slim: true, title: "Nothing waiting",
+      text: stats.chats.length
+        ? "A mention left unanswered for 2 h shows up here, with a way to it."
+        : "Mentions left unanswered for 2 h will show up here." }));
+    return;
+  }
+  const me = state.me && isParticipant() ? state.me.participant_id : null;
+  const sorted = [...all].sort((a, b) =>
+    ((b.mentioned_id === me) - (a.mentioned_id === me)) || a.created_at.localeCompare(b.created_at));
+  for (const w of sorted.slice(0, 7)) {
+    const row = mk("div", "wrow");
+    row.appendChild(makeAvatar(w.mentioned_name, w.mentioned_id, false, true));
+    const body = mk("div", "wb");
+    body.appendChild(mk("div", "wn", (w.mentioned_id === me ? "You" : w.mentioned_name) + " ← " + w.sender_name));
+    body.appendChild(mk("div", "ws", w.chat_name));
+    const age = mk("span", "chip-warn", "▲ " + fmtAgo(w.created_at));
+    age.dataset.tip = "Mentioned at " + fmtTime(w.created_at) + " · " + fmtDay(w.created_at);
+    const open = mk("button", "btn btn-secondary", "Open");
+    open.onclick = () => goToWaiting(w);
+    row.append(body, age, open);
+    box.appendChild(row);
+  }
+  if (sorted.length > 7) box.appendChild(mk("div", "ws", `+${sorted.length - 7} more`)).style.padding = "4px 10px";
+}
+
+function renderAgentsPanel(stats) {
+  const box = $("ovAgents");
+  box.textContent = "";
+  const agents = stats.participants;
+  $("ovAgentsN").textContent = agents.length ? String(agents.length) : "";
+  if (!agents.length) {
+    box.appendChild(stateNote({ slim: true, title: "No agents yet",
+      text: "Agents appear here after they register through the MCP tool." }));
+    return;
+  }
+  const max = Math.max(1, ...agents.map((p) => p.messages_24h));
+  const total = agents.reduce((s, p) => s + p.messages_24h, 0);
+  const sorted = [...agents].sort((a, b) =>
+    b.messages_24h - a.messages_24h || (a.presence === "dormant") - (b.presence === "dormant") ||
+    (b.last_seen_at || "").localeCompare(a.last_seen_at || ""));
+  for (const p of sorted.slice(0, 8)) {
+    const dormant = p.presence === "dormant";
+    const row = mk("div", "rrow" + (dormant ? " dim" : ""));
+    const dot = mk("span", "pdot" + (dormant ? " off" : ""));
+    dot.dataset.tip = dormant ? `Dormant · last seen ${p.last_seen_at ? fmtAgo(p.last_seen_at) + " ago" : "never"}` : "Active";
+    const body = mk("div", "rb");
+    const name = mk("div", "rn", p.name);
+    if (state.me && p.id === state.me.participant_id) name.appendChild(mk("span", "you", " (you)"));
+    body.append(name, mk("div", "rs",
+      `#${p.id} · ${p.client_type}@${p.machine} · ${dormant ? "seen " + (p.last_seen_at ? fmtAgo(p.last_seen_at) + " ago" : "never") : p.chat_count + " chats"}`));
+    const v = mk("span", "rv", p.messages_24h ? String(p.messages_24h) : "—");
+    if (total) v.dataset.tip = `${Math.round((p.messages_24h / total) * 100) || "<1"}% of messages · 24 h`;
+    const share = mk("span", "share"); const fill = mk("i");
+    fill.style.width = (p.messages_24h / max) * 100 + "%"; share.appendChild(fill);
+    row.append(dot, makeAvatar(p.name, p.id, dormant, true), body, v, share);
+    box.appendChild(row);
+  }
+}
+
+const MEM_TYPES = [
+  ["DECISION", "Decisions", 100], ["FACT", "Facts", 70],
+  ["CONTEXT", "Context", 45], ["KNOWLEDGE", "Knowledge", 25],
+];
+function renderMemPanel(stats) {
+  const box = $("ovMem");
+  box.textContent = "";
+  const counts = stats.memories.counts;
+  const totals = MEM_TYPES.map(([k, label, pct]) => ({ k, label, pct, n: counts[k].ACTIVE }));
+  const active = totals.reduce((s, t) => s + t.n, 0);
+  const superseded = Object.values(counts).reduce((s, c) => s + c.SUPERSEDED, 0);
+  const all = Object.values(counts).reduce((s, c) => s + c.ACTIVE + c.SUPERSEDED + c.ARCHIVED + c.DISPUTED, 0);
+  $("ovMemN").textContent = all ? String(active) : "";
+  if (!all) {
+    box.appendChild(stateNote({ slim: true, title: "No memories yet",
+      text: "Decisions, facts and context appear here once an agent saves them." }));
+    return;
+  }
+  const bar = mk("div", "segbar");
+  for (const t of totals) {
+    if (!t.n) continue;
+    const seg = mk("i");
+    seg.style.flex = String(t.n);
+    seg.style.background = `color-mix(in srgb, var(--color-accent) ${t.pct}%, transparent)`;
+    seg.dataset.tip = `${t.n} ${t.label.toLowerCase()}`;
+    seg.dataset.tipM = `${Math.round((t.n / active) * 100)}% of active`;
+    seg.dataset.tipV = String(t.n);
+    bar.appendChild(seg);
+  }
+  if (active) box.appendChild(bar);
+  const legend = mk("div", "seglegend");
+  for (const t of totals) {
+    const s = mk("span"); const sw = mk("i");
+    sw.style.background = `color-mix(in srgb, var(--color-accent) ${t.pct}%, transparent)`;
+    s.append(sw, t.label + " ", mk("b", null, String(t.n)));
+    legend.appendChild(s);
+  }
+  const sup = mk("span"); sup.append(`Superseded `, mk("b", null, String(superseded)));
+  legend.appendChild(sup);
+  box.appendChild(legend);
+  for (const m of stats.memories.disputed.slice(0, 4)) {
+    const row = mk("div", "wrow");
+    const body = mk("div", "wb");
+    body.append(mk("div", "wn", m.content), mk("div", "ws", `#${m.id} · ${m.memory_type.toLowerCase()} · ${fmtAgo(m.updated_at)}`));
+    row.append(body, mk("span", "chip-warn", "▲ disputed"));
+    box.appendChild(row);
+  }
+}
+
+function overviewSkeleton() {
+  const kpis = $("ovKpis");
+  kpis.textContent = "";
+  for (let i = 0; i < 5; i++) {
+    const card = mk("div", "ov-card kpi ov-skel-kpi");
+    card.append(skelBar("40%"), skelBar("55%", "skel-big"), skelBar("70%"));
+    card.querySelector(".skel-big").style.height = "26px";
+    kpis.appendChild(card);
+  }
+  for (const id of ["ovChats", "ovWait", "ovAgents", "ovMem"]) {
+    const box = $(id);
+    box.textContent = "";
+    for (let i = 0; i < 4; i++) {
+      const row = mk("div", "rrow");
+      row.append(skelBar("28px"), mk("div", "rb"), skelBar("24px"));
+      row.children[0].style.height = "28px";
+      row.children[1].append(skelBar(`${50 + ((i * 17) % 35)}%`), skelBar("30%"));
+      row.children[1].children[0].style.height = "10px";
+      row.children[1].children[1].style.cssText += "height:8px;margin-top:6px";
+      box.appendChild(row);
+    }
+  }
+}
+
+function renderOverview() {
+  const stats = ovState.stats;
+  const pill = $("ovUpdated");
+  pill.classList.toggle("err", !!ovState.error);
+  if (ovState.error && stats) {
+    $("ovUpdatedText").textContent = `Couldn't refresh · last ${fmtTime(ovState.at.toISOString())}`;
+    pill.dataset.tip = ovState.error;
+  } else if (stats) {
+    $("ovUpdatedText").textContent = `Updated ${fmtTime(ovState.at.toISOString())}`;
+    pill.dataset.tip = `Refreshes every ${Math.max(2, settings.pollSeconds || 5)} s`;
+  }
+  if (!stats) return;
+  const waiting = myWaiting(stats).length;
+  $("ovCount").textContent = waiting ? ` ${waiting}` : "";
+  renderKpis(stats);
+  renderChatsPanel(stats);
+  renderWaitPanel(stats);
+  renderAgentsPanel(stats);
+  renderMemPanel(stats);
+}
+
+async function loadStats() {
+  if (ovState.loading) return;
+  ovState.loading = true;
+  const ticket = ++ovState.ticket;
+  const first = !ovState.stats;
+  let stop = null;
+  if (first && !ovState.error) {
+    $("ovUpdatedText").textContent = "Loading";
+    // Skeleton after the usual grace, then words in the status pill if
+    // the answer is late (the §10.10 steps); the panels keep their shape.
+    const timers = [setTimeout(overviewSkeleton, SKELETON_DELAY_MS),
+      ...SLOW_STEPS.map(([at, words]) => setTimeout(() => { $("ovUpdatedText").textContent = words; }, at))];
+    stop = () => timers.forEach(clearTimeout);
+  }
+  try {
+    const stats = await api("/stats");
+    if (ticket !== ovState.ticket) return;
+    ovState.stats = stats; ovState.error = null; ovState.at = new Date();
+    if (stop) stop();
+    renderOverview();
+  } catch (error) {
+    if (stop) stop();
+    if (unloading) return;
+    ovState.error = error.message;
+    if (ovState.stats) { renderOverview(); return; }
+    // Nothing to keep on screen: say it once, where the numbers would be.
+    $("ovUpdated").classList.add("err");
+    $("ovUpdatedText").textContent = "Couldn't load";
+    $("ovKpis").textContent = "";
+    for (const id of ["ovChats", "ovWait", "ovAgents", "ovMem"]) $(id).textContent = "";
+    $("ovKpis").appendChild(stateNote({ error: true, cls: "ov-card",
+      title: "Couldn't load the overview", text: "The server didn't answer this read. The chats may still work.",
+      why: `${error.message} · /stats`, action: "Try again",
+      onAction: () => { ovState.error = null; loadStats(); } }));
+    $("ovKpis").firstChild.style.gridColumn = "1 / -1";
+  } finally {
+    ovState.loading = false;
+  }
+}
+
+async function openFromOverview(chatId) {
+  setView("chats");
+  await openChat(chatId);
+}
+async function goToWaiting(w) {
+  await openFromOverview(w.chat_id);
+  revealMessage(w.message_id);
+}
+
+/* One tooltip for the whole screen: [data-tip] (+ data-tip-v for a big
+   value, data-tip-m for a muted line). Shows on hover and keyboard focus,
+   hides on scroll and Escape. */
+(function tooltip() {
+  const tip = $("tip");
+  let owner = null;
+  const hide = () => { tip.hidden = true; owner = null; };
+  const show = (el) => {
+    owner = el;
+    tip.textContent = "";
+    if (el.dataset.tipV) {
+      tip.appendChild(mk("b", null, el.dataset.tipV));
+      tip.appendChild(mk("div", "m", el.dataset.tipM || el.dataset.tip));
+    } else {
+      tip.appendChild(mk("div", null, el.dataset.tip));
+      if (el.dataset.tipM) tip.appendChild(mk("div", "m", el.dataset.tipM));
+    }
+    tip.hidden = false;
+    const r = el.getBoundingClientRect(), t = tip.getBoundingClientRect();
+    let x = r.left + r.width / 2 - t.width / 2;
+    x = Math.max(8, Math.min(x, innerWidth - t.width - 8));
+    let y = r.top - t.height - 8;
+    if (y < 8) y = r.bottom + 8;
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  };
+  const find = (target) => target && target.closest ? target.closest("[data-tip]") : null;
+  document.addEventListener("mouseover", (e) => { const el = find(e.target); if (el && el.dataset.tip) show(el); else if (owner) hide(); });
+  document.addEventListener("focusin", (e) => { const el = find(e.target); if (el && el.dataset.tip) show(el); });
+  document.addEventListener("focusout", hide);
+  document.addEventListener("scroll", hide, true);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(); });
+})();
+
 function setView(view) {
   state.view = view;
+  settings.view = view; saveSettings();
+  $("overviewView").hidden = view !== "overview";
   $("inboxView").hidden = view !== "inbox";
   $("chatsView").hidden = view !== "chats";
   for (const [id, on] of [
+    ["segOverview", view === "overview"], ["segOverviewM", view === "overview"],
     ["segInbox", view === "inbox"], ["segChats", view === "chats"],
     ["segInboxM", view === "inbox"], ["segChatsM", view === "chats"],
   ]) $(id).classList.toggle("on", on);
@@ -3853,6 +4498,7 @@ function setView(view) {
     loadInbox().catch((e) => toast(e.message, true));
     loadPresence().catch(() => {});
   }
+  if (view === "overview") loadStats();
   startPollers();
 }
 
@@ -3873,6 +4519,7 @@ function applyMode() {
     loadInbox().catch(() => {});
     loadPresence().catch(() => {});
   }
+  if (state.view === "overview") loadStats();
   if (state.current != null) loadParticipants(state.current).catch(() => {});
 }
 
@@ -3901,7 +4548,8 @@ function startPollers() {
     loadChats().catch(() => {});
   }, pollMs());
   state.pollView = setInterval(() => {
-    if (state.view === "inbox") {
+    if (state.view === "overview") loadStats();
+    else if (state.view === "inbox") {
       loadInbox().catch(() => {});
       loadPresence().catch(() => {});
     } else if (state.current != null) pollNewMessages();
@@ -3916,13 +4564,16 @@ document.addEventListener("visibilitychange", () => {
   } else {
     loadHealth();
     loadChats().catch(() => {});
-    if (state.view === "inbox") loadInbox().catch(() => {});
+    if (state.view === "overview") loadStats();
+    else if (state.view === "inbox") loadInbox().catch(() => {});
     else if (state.current != null) pollNewMessages();
     startPollers();
   }
 });
 
 /* --------------------------------------------------------------- wiring */
+$("segOverview").onclick = () => setView("overview");
+$("segOverviewM").onclick = () => setView("overview");
 $("segInbox").onclick = () => setView("inbox");
 $("segChats").onclick = () => setView("chats");
 $("segInboxM").onclick = () => setView("inbox");
@@ -3980,7 +4631,8 @@ $("messages").addEventListener("scroll", () => {
 /* --------------------------------------------------------------- start */
 renderNotifBadge();
 applyMode();
-setView(state.me && isParticipant() ? "inbox" : "chats");
+// The Overview opens first (§10.11); afterwards the last view chosen.
+setView(["overview", "inbox", "chats"].includes(settings.view) ? settings.view : "overview");
 loadChats().then(() => {
   // Presence aggregates per-chat participants: it needs the chat list first.
   if (state.view === "inbox") loadPresence().catch(() => {});
