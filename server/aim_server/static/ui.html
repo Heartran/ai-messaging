@@ -2595,10 +2595,11 @@ async function goToNotif(n) {
 
 function revealMessage(id) {
   const el = $("messages").querySelector(`.mrow[data-mid="${id}"]`);
-  if (!el) return; // older than what the thread loads: the chat is open anyway
+  if (!el) return false; // older than what the thread loads: the chat is open anyway
   el.scrollIntoView({ block: "center" });
   el.classList.add("flash");
   setTimeout(() => el.classList.remove("flash"), 1800);
+  return true;
 }
 
 /* ══════════════════════════════ markdown ══════════════════════════════
@@ -4162,16 +4163,24 @@ function myWaiting(stats) {
   return me == null ? stats.waiting_mentions
     : stats.waiting_mentions.filter((w) => w.mentioned_id === me);
 }
+/* waiting_mentions is a preview (oldest 50); counts come from the full
+   totals so a busy server never under-reports. */
+function myWaitingCount(stats) {
+  const me = state.me && isParticipant() ? state.me.participant_id : null;
+  return me == null ? (stats.waiting_total || 0)
+    : ((stats.waiting_by_participant || {})[String(me)] || 0);
+}
 
 function renderKpis(stats) {
   const box = $("ovKpis");
   box.textContent = "";
   const mine = state.me && isParticipant();
   const waiting = myWaiting(stats);
+  const waitingCount = myWaitingCount(stats);
   const oldest = waiting[0];
   box.appendChild(kpiCard({
     label: mine ? "Waiting on you" : "Waiting", icon: "at",
-    value: String(waiting.length), warn: waiting.length > 0,
+    value: String(waitingCount), warn: waitingCount > 0,
     base: oldest ? [mk("span", "chip-warn", "▲ oldest " + fmtAgo(oldest.created_at))] : "mentions · 2 h+",
     tip: mine ? "Mentions of you, unanswered in their chat for 2 h or more"
               : "Mentions unanswered in their chat for 2 h or more",
@@ -4241,8 +4250,8 @@ function renderChatsPanel(stats) {
       action: "New chat", onAction: createChatFlow }));
     return;
   }
-  const waitingBy = new Map();
-  for (const w of stats.waiting_mentions) waitingBy.set(w.chat_id, (waitingBy.get(w.chat_id) || 0) + 1);
+  const byChat = stats.waiting_by_chat || {};
+  const waitingBy = new Map(stats.chats.map((c) => [c.id, byChat[String(c.id)] || 0]));
   const rows = [...stats.chats].sort((a, b) =>
     (waitingBy.get(b.id) || 0) - (waitingBy.get(a.id) || 0) ||
     b.messages_24h - a.messages_24h ||
@@ -4296,7 +4305,8 @@ function renderWaitPanel(stats) {
   const box = $("ovWait");
   box.textContent = "";
   const all = stats.waiting_mentions;
-  $("ovWaitN").textContent = all.length ? String(all.length) : "";
+  const total = stats.waiting_total || all.length;
+  $("ovWaitN").textContent = total ? String(total) : "";
   if (!all.length) {
     box.appendChild(stateNote({ slim: true, title: stats.chats.length ? "Nothing waiting" : "No mentions yet",
       text: stats.chats.length
@@ -4320,7 +4330,8 @@ function renderWaitPanel(stats) {
     row.append(body, age, open);
     box.appendChild(row);
   }
-  if (sorted.length > 7) box.appendChild(mk("div", "ws", `+${sorted.length - 7} more`)).style.padding = "4px 10px";
+  const shown = Math.min(sorted.length, 7);
+  if (total > shown) box.appendChild(mk("div", "ws", `+${total - shown} more`)).style.padding = "4px 10px";
 }
 
 function renderAgentsPanel(stats) {
@@ -4461,7 +4472,7 @@ function renderOverview() {
     pill.dataset.tip = `Refreshes every ${Math.max(2, settings.pollSeconds || 5)} s`;
   }
   if (!stats) return;
-  const waiting = myWaiting(stats).length;
+  const waiting = myWaitingCount(stats);
   $("ovCount").textContent = waiting ? ` ${waiting}` : "";
   renderKpis(stats);
   renderChatsPanel(stats);
@@ -4660,7 +4671,7 @@ function statsByChat() {
 }
 function waitingIn(chatId) {
   if (!ovState.stats) return 0;
-  return ovState.stats.waiting_mentions.filter((w) => w.chat_id === chatId).length;
+  return (ovState.stats.waiting_by_chat || {})[String(chatId)] || 0;
 }
 
 async function openFromOverview(chatId) {
@@ -4669,7 +4680,9 @@ async function openFromOverview(chatId) {
 }
 async function goToWaiting(w) {
   await openFromOverview(w.chat_id);
-  revealMessage(w.message_id);
+  if (!revealMessage(w.message_id)) {
+    toast("That mention is older than the messages loaded here. Scroll up in the chat to find it.");
+  }
 }
 
 /* One tooltip for the whole screen: [data-tip] (+ data-tip-v for a big

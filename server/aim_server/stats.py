@@ -64,7 +64,14 @@ def compute_stats(conn: sqlite3.Connection) -> dict:  # pylint: disable=too-many
             continue
         hourly[index] += 1
         chat_hourly.setdefault(row["chat_id"], [0] * 24)[index] += 1
-        sender_24[row["sender_id"]] = sender_24.get(row["sender_id"], 0) + 1
+    # Per sender over the same rolling window as the KPI, not the
+    # hour-aligned buckets (which start up to an hour later).
+    for row in conn.execute(
+        "SELECT sender_id, COUNT(*) AS n FROM messages WHERE created_at > ? "
+        "GROUP BY sender_id",
+        (cut_24,),
+    ):
+        sender_24[row["sender_id"]] = row["n"]
 
     chats = []
     for row in conn.execute(
@@ -114,33 +121,44 @@ def compute_stats(conn: sqlite3.Connection) -> dict:  # pylint: disable=too-many
     # A mention is waiting while the mentioned participant, still a
     # member, has written nothing in that chat since. Older than a week
     # it is history, not a queue.
+    waiting_from = """
+        FROM mentions mn
+        JOIN messages msg ON msg.id = mn.message_id
+        JOIN chats c ON c.id = msg.chat_id
+        JOIN participants ps ON ps.id = msg.sender_id
+        JOIN participants pm ON pm.id = mn.participant_id
+        JOIN chat_members cm ON cm.chat_id = msg.chat_id
+             AND cm.participant_id = mn.participant_id AND cm.left_at IS NULL
+        WHERE msg.created_at > ? AND msg.created_at <= ?
+          AND mn.participant_id != msg.sender_id
+          AND NOT EXISTS (
+              SELECT 1 FROM messages r
+              WHERE r.chat_id = msg.chat_id AND r.sender_id = mn.participant_id
+                AND r.id > msg.id)
+    """
+    window = (unanswered_window, unanswered_after)
+    # The list is a preview; the counts cover every waiting mention, so a
+    # long backlog is never under-reported by the preview's limit.
     waiting = [
         dict(row)
         for row in conn.execute(
-            """
-            SELECT mn.message_id, msg.chat_id, c.name AS chat_name,
-                   msg.sender_id, ps.name AS sender_name,
-                   mn.participant_id AS mentioned_id, pm.name AS mentioned_name,
-                   msg.created_at
-            FROM mentions mn
-            JOIN messages msg ON msg.id = mn.message_id
-            JOIN chats c ON c.id = msg.chat_id
-            JOIN participants ps ON ps.id = msg.sender_id
-            JOIN participants pm ON pm.id = mn.participant_id
-            JOIN chat_members cm ON cm.chat_id = msg.chat_id
-                 AND cm.participant_id = mn.participant_id AND cm.left_at IS NULL
-            WHERE msg.created_at > ? AND msg.created_at <= ?
-              AND mn.participant_id != msg.sender_id
-              AND NOT EXISTS (
-                  SELECT 1 FROM messages r
-                  WHERE r.chat_id = msg.chat_id AND r.sender_id = mn.participant_id
-                    AND r.id > msg.id)
-            ORDER BY msg.created_at
-            LIMIT 50
-            """,
-            (unanswered_window, unanswered_after),
+            "SELECT mn.message_id, msg.chat_id, c.name AS chat_name, "
+            "msg.sender_id, ps.name AS sender_name, "
+            "mn.participant_id AS mentioned_id, pm.name AS mentioned_name, "
+            "msg.created_at " + waiting_from + " ORDER BY msg.created_at LIMIT 50",
+            window,
         )
     ]
+    waiting_by_chat: dict[str, int] = {}
+    waiting_by_participant: dict[str, int] = {}
+    waiting_total = 0
+    for row in conn.execute(
+        "SELECT msg.chat_id, mn.participant_id " + waiting_from, window
+    ):
+        waiting_total += 1
+        chat_key, pid_key = str(row["chat_id"]), str(row["participant_id"])
+        waiting_by_chat[chat_key] = waiting_by_chat.get(chat_key, 0) + 1
+        waiting_by_participant[pid_key] = waiting_by_participant.get(pid_key, 0) + 1
 
     memory_counts = {
         kind: {status: 0 for status in ("ACTIVE", "SUPERSEDED", "ARCHIVED", "DISPUTED")}
@@ -168,5 +186,8 @@ def compute_stats(conn: sqlite3.Connection) -> dict:  # pylint: disable=too-many
         "chats": chats,
         "participants": participants,
         "waiting_mentions": waiting,
+        "waiting_total": waiting_total,
+        "waiting_by_chat": waiting_by_chat,
+        "waiting_by_participant": waiting_by_participant,
         "memories": {"counts": memory_counts, "disputed": disputed},
     }

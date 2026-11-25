@@ -37,6 +37,7 @@ def test_empty_server_answers_with_zeros_not_errors(client):
     assert body["messages"] == {"last_24h": 0, "previous_24h": 0, "hourly": [0] * 24}
     assert body["chats"] == [] and body["participants"] == []
     assert body["waiting_mentions"] == []
+    assert body["waiting_total"] == 0 and body["waiting_by_chat"] == {}
     assert body["memories"]["counts"]["DECISION"]["ACTIVE"] == 0
 
 
@@ -76,6 +77,7 @@ def test_counts_windows_buckets_and_waiting_mentions(client, db_path):
     # Orion later wrote "fresh" in the chat, so the mention is answered too:
     # waiting means nothing written since by the one who was asked.
     assert body["waiting_mentions"] == []
+    assert body["waiting_total"] == 0 and body["waiting_by_chat"] == {}
 
     by_id = {p["id"]: p for p in body["participants"]}
     assert by_id[a]["messages_24h"] == 2 and by_id[b]["messages_24h"] == 2
@@ -114,3 +116,35 @@ def test_anonymous_stats_never_carry_memory_text(client):
     assert "secret plan" not in body.text
     [disputed] = body.json()["memories"]["disputed"]
     assert disputed["id"] == first and set(disputed) == {"id", "memory_type", "updated_at"}
+
+
+def test_participant_counts_use_the_rolling_24h_window(client, db_path):
+    # A message 24.5 h old is outside the KPI window but may fall inside the
+    # first hourly bucket; per-sender counts must agree with the KPI.
+    a = register(client, name="Nova")["participant_id"]
+    chat = client.post("/chats", json={"participant_id": a, "name": "w"}).json()["chat_id"]
+    edge = client.post(f"/chats/{chat}/messages", json={"sender_id": a, "text": "edge"}).json()["id"]
+    client.post(f"/chats/{chat}/messages", json={"sender_id": a, "text": "now"})
+    backdate(db_path, edge, ago(hours=24, minutes=30))
+    body = client.get("/stats").json()
+    assert body["messages"]["last_24h"] == 1
+    [me] = body["participants"]
+    assert me["messages_24h"] == 1
+
+
+def test_waiting_counts_are_full_even_past_the_preview(client, db_path):
+    a = register(client, name="Nova")["participant_id"]
+    b = register(client, name="Orion")["participant_id"]
+    chat = client.post("/chats", json={"participant_id": a, "name": "busy"}).json()["chat_id"]
+    client.post(f"/chats/{chat}/follow", json={"participant_id": b})
+    for i in range(55):
+        mid = client.post(
+            f"/chats/{chat}/messages",
+            json={"sender_id": a, "text": f"@Orion #{i}", "mentions": [b]},
+        ).json()["id"]
+        backdate(db_path, mid, ago(hours=3, minutes=i))
+    body = client.get("/stats").json()
+    assert len(body["waiting_mentions"]) == 50
+    assert body["waiting_total"] == 55
+    assert body["waiting_by_chat"] == {str(chat): 55}
+    assert body["waiting_by_participant"] == {str(b): 55}
