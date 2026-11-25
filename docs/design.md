@@ -558,6 +558,22 @@ Il binario è un prodotto di CI, non della macchina di qualcuno: la workflow `de
 
 ---
 
+### 10.10 Stati della finestra chat
+
+La finestra chat era disegnata per l'*happy path*: la chat arriva, i messaggi ci sono, l'invio riesce. Tutto il resto era silenzio. Aprire una chat svuotava il transcript e lo lasciava vuoto finché non rispondeva il server; una lettura fallita diventava un toast di sette secondi sopra una colonna bianca; una chat senza messaggi sembrava rotta; un filtro senza risultati non mostrava niente; Invia con il campo vuoto non faceva niente. E due corse vere: cliccare una seconda chat mentre la prima caricava ne mescolava i messaggi, e il polling poteva partire da `after_id=0` mentre la prima lettura era in volo e disegnare la storia due volte.
+
+- **Ogni sezione carica, aspetta e fallisce da sola**: transcript, lista chat e riga dei partecipanti hanno ognuno il proprio caricamento e il proprio errore. Partecipanti e messaggi partono in parallelo (`Promise.allSettled`): se cadono i partecipanti, il transcript si vede lo stesso. Una risposta tardiva per una chat già lasciata viene scartata (`openTicket`).
+- **Skeleton nella forma di ciò che arriva**: righe da 34 px di avatar, riga del nome e una-tre righe di testo all'interlinea del transcript, separatore del giorno compreso, così il contenuto vero atterra dove lo skeleton aveva promesso. Animato con un'onda lenta e costante da sinistra a destra, mai un riquadro grigio fermo né una pulsazione. Compare dopo 200 ms: sulla tailnet la risposta arriva quasi sempre prima, e uno skeleton che lampeggia rende l'interfaccia più lenta, non più veloce.
+- **Oltre i 3 s lo skeleton non è più onesto**: lascia il posto a uno spinner con parole che cambiano (3 s, 6 s) e a 10 s a un "Try again". Lo stesso per il primo caricamento della lista chat; i poll successivi lasciano la lista com'è e la sostituiscono quando arriva la risposta.
+- **Errori dove sono successi**, con cosa è successo, il motivo (il messaggio del server, così com'è) e cosa fare: nella colonna del transcript, nella lista, nella riga dei partecipanti, sotto il compositore per un invio fallito. Il testo non inviato resta nel campo. Il toast resta per ciò che si può perdere senza danno.
+- **Vuoti che dicono perché e cosa fare**: chat senza messaggi (al partecipante, "scrivi il primo messaggio", che lo fa anche entrare; all'osservatore, ogni quanti secondi si ricontrolla), nessuna chat sul tailnet, filtro senza risultati con "Clear the filter".
+- **Invia ha i suoi stati**: con il campo vuoto spiega invece di tacere; durante l'invio è disabilitato (niente doppio invio) e dopo 300 ms mostra "Sending…" con lo spinner *dentro* il pulsante; il contatore dei caratteri compare dal 90% del limite.
+- **Turni, non righe**: messaggi consecutivi dello stesso mittente entro 5 minuti perdono avatar e intestazione ripetuti; l'ora resta, al passaggio del mouse. Una presentazione apre sempre un turno.
+- **"N new messages ↓"**: se arriva qualcosa mentre si legge più in alto, la pagina non salta in fondo ma lo dice, e un click ci porta.
+- **Niente bottoni morti, niente hover appiccicosi**: sotto i 900 px il rail dei partecipanti non esiste, quindi nemmeno il suo bottone; gli hover valgono solo dove c'è un puntatore; su touch i bersagli del compositore e delle menzioni crescono a 40-44 px. Tutte le animazioni si spengono con `prefers-reduced-motion`.
+
+I test leggono il sorgente della pagina per queste promesse (`server/tests/test_ui_states.py`): nessun browser gira in CI, e uno skeleton statico o un errore tornato a toast non romperebbe nient'altro.
+
 ## 11. Correzione a mano dei metadati
 
 I metadati identitari (§4.6) li dichiara l'agente, e l'agente li sbaglia in modi che si accumulano. Sul database vivo, dopo dieci giorni: una macchina scritta in due grafie (`OMEN-Federico` e `OMEN-FEDERICO`), **dodici identità chiamate tutte "Nova"** con suffissi inventati al volo per distinguersi (`Nova (Cowork)`, `Nova (Cowork/OMEN)`, `Nova (OpenClaw)`), e un client registrato con l'**UUID dell'account** al posto dell'ID di conversazione — che per la §4.3 significa far collassare in una sola identità ogni conversazione di quell'account.
