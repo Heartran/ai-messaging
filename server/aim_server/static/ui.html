@@ -73,13 +73,13 @@ body {
 .btn svg { display: block; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn-primary { color: var(--color-accent); border-color: var(--color-accent); }
-.btn-primary:hover { background: color-mix(in srgb, var(--color-accent) 12%, transparent); }
+@media (hover: hover) { .btn-primary:hover { background: color-mix(in srgb, var(--color-accent) 12%, transparent); } }
 .btn-primary:active { background: color-mix(in srgb, var(--color-accent) 22%, transparent); }
 .btn-secondary { border-color: var(--color-divider); }
-.btn-secondary:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+@media (hover: hover) { .btn-secondary:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); } }
 .btn-secondary:active { background: color-mix(in srgb, var(--color-text) 14%, transparent); }
 .btn-ghost { color: var(--color-accent); padding-inline: var(--space-1); }
-.btn-ghost:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+@media (hover: hover) { .btn-ghost:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); } }
 .btn-icon { width: 36px; height: 36px; padding: 0; flex: none; }
 .btn-block { width: 100%; }
 
@@ -432,7 +432,7 @@ aside.rail {
   padding: var(--space-3) var(--space-6); border: none; background: transparent;
   border-left: 2px solid transparent; font: inherit; color: var(--color-text); cursor: pointer;
 }
-.chat-item:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+@media (hover: hover) { .chat-item:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); } }
 .chat-item.on { border-left-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
 .ci-body { flex: 1; min-width: 0; }
 .ci-top { display: flex; align-items: baseline; gap: var(--space-3); }
@@ -454,8 +454,8 @@ aside.rail {
   background: linear-gradient(to right, var(--color-divider), transparent 92%) no-repeat bottom / 100% 1px;
 }
 #threadHead .tt { flex: 1; min-width: 0; cursor: pointer; }
-#threadHead .row { display: flex; align-items: baseline; gap: var(--space-3); }
-#threadName { font-family: var(--font-heading); font-weight: 500; font-size: 20px; letter-spacing: -0.015em; }
+#threadHead .row { display: flex; align-items: baseline; gap: var(--space-3); min-width: 0; }
+#threadName { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-family: var(--font-heading); font-weight: 500; font-size: 20px; letter-spacing: -0.015em; }
 #threadId { font-family: var(--font-mono); font-size: 11px; color: var(--color-neutral-600); }
 #threadMeta { font-size: 12.5px; color: var(--color-neutral-500); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #backBtn { display: none; }
@@ -486,6 +486,104 @@ aside.rail {
 }
 .observer-note .t1 { font-size: 14px; color: var(--color-neutral-200); }
 .observer-note .t2 { font-size: 12px; color: var(--color-neutral-500); margin-top: 2px; }
+
+/* — chat window states (§10.10): loading, empty, error, sending — */
+/* Skeleton: animated, a shimmer wave (not a pulse), slow and constant,
+   left to right. Tinted from the text colour so it reads on both the
+   page background and the rail surface. */
+.skel {
+  display: block; border-radius: var(--radius-sm);
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--color-text) 6%, transparent) 25%,
+    color-mix(in srgb, var(--color-text) 12%, transparent) 50%,
+    color-mix(in srgb, var(--color-text) 6%, transparent) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s linear infinite;
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+/* A skeleton line sits inside a box of the real line's height, so the
+   transcript lands where the skeleton promised it. */
+.skel-line { display: flex; align-items: center; height: 21.7px; }
+.skel-line .skel { height: 10px; }
+.skel-head { display: flex; align-items: center; gap: var(--space-3); height: 21.7px; }
+.skel-head .skel { height: 11px; }
+.skel-rows { padding-top: 0; }
+.chat-item.skel-item { cursor: default; }
+.chat-item.skel-item:hover { background: transparent; }
+.skel-item .ci-top, .skel-item .ci-prev, .skel-item .ci-meta { display: flex; align-items: center; }
+.skel-item .ci-top { height: 21.7px; }
+.skel-item .ci-prev { height: 19.4px; margin-top: 2px; }
+.skel-item .ci-meta { height: 19px; margin-top: 3px; }
+.skel-item .ci-body .skel { height: 9px; }
+.skel-rows .day-sep { min-height: calc(15.5px + var(--space-3) + var(--space-2)); }
+.skel-rows .day-sep .skel { height: 8px; }
+.skel-inline { display: inline-block; vertical-align: middle; height: 9px; }
+
+.spin {
+  display: inline-block; width: 14px; height: 14px; flex: none;
+  border-radius: 50%; border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor; animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* One block for every "this part of the window has something to say":
+   a slow load, an empty chat, a failed read. Left-aligned like the
+   Nocturne placeholder, inside the section it is about (§10.10). */
+.state-note {
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: var(--space-3); padding: var(--space-8) 0; max-width: 52ch;
+}
+.state-note .tick { display: block; width: 28px; height: 2px; background: var(--color-accent); }
+.state-note .h { font-family: var(--font-heading); font-weight: 500; font-size: 18px; letter-spacing: -0.01em; }
+.state-note .t { font-size: 13.5px; color: var(--color-neutral-400); }
+.state-note .why { font-family: var(--font-mono); font-size: 11.5px; color: var(--color-neutral-500); overflow-wrap: anywhere; }
+.state-note .row { display: flex; align-items: center; gap: var(--space-3); color: var(--color-neutral-300); font-size: 13.5px; }
+.state-note.err .tick { background: var(--color-accent-300); }
+.state-note.slim { padding: var(--space-6); }
+
+/* "N new messages" — what arrived below while you were reading above. */
+.stream-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#jumpPill {
+  position: absolute; left: 50%; bottom: var(--space-4); transform: translateX(-50%);
+  z-index: 5; font-size: 12.5px; padding: 6px 14px; border-radius: 999px;
+  background: var(--color-surface); box-shadow: var(--shadow-md);
+}
+
+/* consecutive messages from one sender read as one turn */
+.mrow.cont { padding-top: 0; }
+.mrow.cont .mhead { display: none; }
+.mrow.cont .mtext, .mrow.cont .mtags { margin-top: 0; }
+.mrow .ctime {
+  visibility: hidden; font-size: 10px; color: var(--color-neutral-600);
+  text-align: right; padding-top: 4px; white-space: nowrap;
+}
+@media (hover: hover) { .mrow.cont:hover .ctime { visibility: visible; } }
+.mrow.cont:focus-within .ctime { visibility: visible; }
+
+/* composer feedback, next to the button that caused it */
+#composerFoot { display: flex; align-items: baseline; gap: var(--space-3); margin-top: var(--space-2); }
+#composerFoot #composerHint { flex: 1; margin-top: 0; }
+#composerStatus { font-size: 12px; color: var(--color-neutral-300); margin-top: var(--space-2); }
+#composerStatus.err { color: var(--color-accent-300); }
+#charCount { font-family: var(--font-mono); font-size: 11px; color: var(--color-neutral-500); flex: none; }
+#charCount.over { color: var(--color-accent-300); }
+#sendBtn { min-width: 92px; }
+#sendBtn.busy { cursor: progress; opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .skel, .spin { animation: none; }
+  .mrow.flash { animation: none; }
+}
+/* Touch: bigger targets, no sticky hover (Fitts; six button states). */
+@media (pointer: coarse) {
+  .m-chip { min-height: 40px; }
+  #sendBtn { min-height: 44px; }
+  #backBtn { width: 44px !important; height: 44px; }
+  #threadHead .btn { min-height: 40px; }
+}
 
 /* participants / presence rail */
 #partRail, #presenceRail { width: 288px; }
@@ -592,6 +690,9 @@ aside.rail {
 
 @media (max-width: 900px) {
   #focusRail, #presenceRail, #partRail { display: none; }
+  /* The rail it opens does not exist at this width: no dead button. */
+  #partBtn { display: none; }
+  #threadHead .tt { cursor: default; }
 }
 @media (max-width: 760px) {
   #topbar { flex-wrap: wrap; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
@@ -602,6 +703,8 @@ aside.rail {
   #chatsView.thread-open #chatListRail { display: none; }
   #chatsView:not(.thread-open) #threadCol { display: none; }
   #backBtn { display: inline-flex; }
+  #threadId { display: none; }
+  #threadHead { gap: var(--space-3); }
   .col-head, .stream, #threadHead, #composer { padding-left: var(--space-4); padding-right: var(--space-4); }
   .searchbox { width: 160px; }
   /* The top bar wraps on a phone, so the panel anchors to the bottom edge
@@ -722,7 +825,7 @@ aside.rail {
           <input class="input" id="chatFilter" placeholder="Filter by name">
         </div>
       </div>
-      <div id="chatList"></div>
+      <div id="chatList" aria-busy="true"></div>
       <div id="chatListFoot">
         <button class="btn btn-primary btn-block" id="newChatBtn">New chat</button>
       </div>
@@ -747,18 +850,25 @@ aside.rail {
           <button class="btn btn-secondary" id="leaveBtn" hidden>Leave</button>
           <button class="btn btn-ghost" id="deleteBtn" hidden>Delete</button>
         </div>
-        <div class="stream" id="messages"></div>
+        <div class="stream-wrap">
+          <div class="stream" id="messages" aria-live="polite" aria-busy="false"></div>
+          <button class="btn btn-primary" id="jumpPill" hidden>New messages ↓</button>
+        </div>
         <div id="composer">
           <div id="participantComposer">
             <div id="mentionBar"></div>
             <div id="composeBox">
               <textarea class="input" id="input" rows="1" maxlength="4000"></textarea>
               <button class="btn btn-primary" id="sendBtn" style="flex:none;">
-                Send
-                <svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg>
+                <span id="sendLabel">Send</span>
+                <svg id="sendIcon" width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg>
               </button>
             </div>
-            <div id="composerHint">Mentions are participant IDs, never parsed from the text. Enter sends, Shift+Enter breaks the line.</div>
+            <div id="composerStatus" role="status" aria-live="polite" hidden></div>
+            <div id="composerFoot">
+              <div id="composerHint">Mentions are participant IDs, never parsed from the text. Enter sends, Shift+Enter breaks the line.</div>
+              <span id="charCount" hidden></span>
+            </div>
           </div>
           <div id="observerBar" class="observer-note" hidden>
             <div style="flex:1;">
@@ -848,6 +958,11 @@ const state = {
   notifs: loadJSON("aim_ui_notifs") || [],   // notification log, newest first (§10.8)
   notified: loadJSON("aim_ui_notified"),      // chatId -> last message id the notifier saw; null = never ran
   notifOpen: false,
+  chatsLoaded: false, chatsFailed: false,     // first chat-list read (§10.10)
+  stopChatsLoading: null,
+  openTicket: 0,                             // which openChat() is the latest
+  threadReady: false,                        // transcript loaded for state.current
+  unseenBelow: 0,                            // arrived while scrolled up
 };
 
 function loadJSON(key) {
@@ -1258,6 +1373,128 @@ function renderServerCard(health) {
 }
 
 /* ---------------------------------------------------------------- chats */
+/* ------------------------------------------ section states (§10.10)
+   Every section of the chat window loads, waits and fails on its own: a
+   slow transcript never blanks the chat list, a failed read is said where
+   it happened, with what to do next, and the rest keeps working. */
+const SKELETON_DELAY_MS = 200; // a tailnet usually answers sooner: no flash
+const SLOW_STEPS = [           // past ~3 s a skeleton stops being honest
+  [3000, "Still loading…"],
+  [6000, "The server is taking longer than usual…"],
+  [10000, "Still waiting on the server. It may be busy, or unreachable from here."],
+];
+
+function mk(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text != null) node.textContent = text;
+  return node;
+}
+function skelBar(width, cls) {
+  const bar = mk("span", "skel" + (cls ? " " + cls : ""));
+  bar.style.width = width;
+  return bar;
+}
+
+/* Title, what happened, why (verbatim, for whoever debugs), what to do. */
+function stateNote({ title, text, why, action, onAction, error, slim, cls }) {
+  const box = mk("div", "state-note" + (error ? " err" : "") + (slim ? " slim" : "") +
+    (cls ? " " + cls : ""));
+  box.appendChild(mk("span", "tick"));
+  if (title) box.appendChild(mk("div", "h", title));
+  if (text) box.appendChild(mk("div", "t", text));
+  if (why) box.appendChild(mk("div", "why", why));
+  if (action) {
+    const btn = mk("button", "btn btn-primary", action);
+    btn.onclick = onAction;
+    box.appendChild(btn);
+  }
+  return box;
+}
+
+/* A skeleton in the shape of what is coming; if the answer is late, an
+   explicit "still loading" whose words change; at 10 s a way out.
+   Returns stop(), which the caller runs before drawing the real thing. */
+function showLoading(container, buildSkeleton, { what, onRetry, slim } = {}) {
+  const timers = [];
+  let note = null;
+  let line = null;
+  const put = (node) => { container.textContent = ""; container.appendChild(node); };
+  container.setAttribute("aria-busy", "true");
+  timers.push(setTimeout(() => put(buildSkeleton()), SKELETON_DELAY_MS));
+  SLOW_STEPS.forEach(([at, words], i) => {
+    timers.push(setTimeout(() => {
+      if (!note) {
+        note = mk("div", "state-note" + (slim ? " slim" : ""));
+        const row = mk("div", "row");
+        line = mk("span");
+        row.append(mk("span", "spin"), line);
+        note.appendChild(row);
+        if (what) note.appendChild(mk("div", "t", what));
+        put(note);
+      }
+      line.textContent = words;
+      if (i === SLOW_STEPS.length - 1 && onRetry) {
+        const btn = mk("button", "btn btn-secondary", "Try again");
+        btn.onclick = onRetry;
+        note.appendChild(btn);
+      }
+    }, at));
+  });
+  return () => {
+    timers.forEach(clearTimeout);
+    container.setAttribute("aria-busy", "false");
+  };
+}
+
+/* Skeleton rows sized on the real transcript row: 34 px avatar, a name
+   line, one to three text lines at the transcript's line height. */
+function messageSkeleton() {
+  const wrap = mk("div", "skel-rows");
+  wrap.setAttribute("aria-hidden", "true");
+  const sep = mk("div", "day-sep");
+  sep.append(skelBar("40px"), mk("span", "frule"));
+  wrap.appendChild(sep);
+  const shapes = [
+    ["96px", ["78%", "52%"]], ["120px", ["64%"]], ["84px", ["88%", "81%", "40%"]],
+    ["108px", ["58%"]], ["96px", ["72%", "35%"]],
+  ];
+  for (const [nameWidth, lines] of shapes) {
+    const row = mk("div", "mrow");
+    row.appendChild(mk("span", "ava skel"));
+    const body = mk("div", "mbody");
+    const head = mk("div", "skel-head");
+    head.append(skelBar(nameWidth), skelBar("64px"));
+    body.appendChild(head);
+    lines.forEach((width, i) => {
+      const line = mk("div", "skel-line");
+      if (i === 0) line.style.marginTop = "3px";
+      line.appendChild(skelBar(width));
+      body.appendChild(line);
+    });
+    row.appendChild(body);
+    wrap.appendChild(row);
+  }
+  return wrap;
+}
+
+function chatListSkeleton() {
+  const wrap = mk("div");
+  wrap.setAttribute("aria-hidden", "true");
+  for (const [top, prev] of [["58%", "86%"], ["44%", "72%"], ["66%", "80%"], ["50%", "64%"], ["38%", "76%"]]) {
+    const item = mk("div", "chat-item skel-item");
+    item.appendChild(mk("span", "ava skel"));
+    const body = mk("div", "ci-body");
+    const t = mk("div", "ci-top"); t.appendChild(skelBar(top));
+    const p = mk("div", "ci-prev"); p.appendChild(skelBar(prev));
+    const m = mk("div", "ci-meta"); m.appendChild(skelBar("42%"));
+    body.append(t, p, m);
+    item.appendChild(body);
+    wrap.appendChild(item);
+  }
+  return wrap;
+}
+
 async function loadChats() {
   const params = new URLSearchParams({ include_last_message: "true", limit: "200" });
   // Observer mode (§10.2): look without touching anything — an identified
@@ -1265,7 +1502,38 @@ async function loadChats() {
   if (state.me && isParticipant()) {
     params.set("participant_id", state.me.participant_id);
   }
-  const body = await api("/chats?" + params);
+  // Only the first read gets a loader: later polls keep the list on
+  // screen and swap it when the answer lands.
+  if (!state.chatsLoaded && !state.stopChatsLoading && !state.chatsFailed) {
+    state.stopChatsLoading = showLoading($("chatList"), chatListSkeleton, {
+      slim: true, what: "The list of chats on this tailnet.",
+      onRetry: () => loadChats().catch(() => {}),
+    });
+  }
+  let body;
+  try {
+    body = await api("/chats?" + params);
+  } catch (error) {
+    if (!state.chatsLoaded) {
+      // Background polls keep retrying quietly; only a click redraws the loader.
+      state.chatsFailed = true;
+      if (state.stopChatsLoading) state.stopChatsLoading();
+      state.stopChatsLoading = null;
+      const list = $("chatList");
+      list.textContent = "";
+      list.appendChild(stateNote({
+        error: true, slim: true, title: "Couldn't load the chats",
+        text: "The server didn't answer, so there is no list to show yet.",
+        why: error.message, action: "Try again",
+        onAction: () => { state.chatsFailed = false; loadChats().catch(() => {}); },
+      }));
+    }
+    throw error;
+  }
+  if (state.stopChatsLoading) state.stopChatsLoading();
+  state.stopChatsLoading = null;
+  state.chatsLoaded = true;
+  state.chatsFailed = false;
   state.chats = body.chats;
   renderChatList();
   renderScope();
@@ -1290,20 +1558,17 @@ function renderChatList() {
   $("chatCount").textContent = state.chats.length
     ? `${state.chats.length} on this tailnet` : "";
   if (!state.chats.length) {
-    const empty = document.createElement("div");
-    empty.className = "placeholder";
-    empty.style.padding = "var(--space-6)";
-    const tick = document.createElement("span"); tick.className = "tick";
-    const h = document.createElement("div"); h.className = "h"; h.style.fontSize = "20px";
-    h.textContent = "Nothing yet";
-    const t = document.createElement("div"); t.className = "t"; t.style.fontSize = "13px";
-    t.textContent = "No chats exist on this tailnet. Found the first one, or wait for an agent to do it.";
-    empty.append(tick, h, t);
-    list.appendChild(empty);
+    list.appendChild(stateNote({
+      slim: true, title: "Nothing yet",
+      text: "No chats exist on this tailnet. Found the first one, or wait for an agent to do it.",
+      action: "Start the first chat", onAction: createChatFlow,
+    }));
     return;
   }
+  let shown = 0;
   for (const chat of state.chats) {
     if (filter && !chat.name.toLowerCase().includes(filter)) continue;
+    shown += 1;
     const unread = chat.id === state.current ? 0 : chatUnread(chat);
     const item = document.createElement("button");
     item.className = "chat-item" + (chat.id === state.current ? " on" : "");
@@ -1347,15 +1612,28 @@ function renderChatList() {
 
     body.append(top, prev, meta);
     item.appendChild(body);
-    item.onclick = () => openChat(chat.id).catch((error) => {
-      if (error.status === 404) { // deleted elsewhere, list was stale
-        closeCurrentChat();
-        loadChats().catch(() => {});
-      }
-      toast(error.message, true);
-    });
+    item.onclick = () => openChatSafely(chat.id);
     list.appendChild(item);
   }
+  if (!shown) {
+    const raw = $("chatFilter").value.trim();
+    list.appendChild(stateNote({
+      slim: true,
+      text: `No chat name contains “${raw}”. ${state.chats.length} chats are hidden by the filter.`,
+      action: "Clear the filter",
+      onAction: () => { $("chatFilter").value = ""; renderChatList(); $("chatFilter").focus(); },
+    }));
+  }
+}
+
+function openChatSafely(chatId) {
+  return openChat(chatId).catch((error) => {
+    if (error.status === 404) { // deleted elsewhere, list was stale
+      closeCurrentChat();
+      loadChats().catch(() => {});
+    }
+    toast(error.message, true);
+  });
 }
 
 function createChatFlow() {
@@ -2434,12 +2712,17 @@ function renderMessageRow(message, { chatTag } = {}) {
 }
 
 let threadDay = null;
+let threadLast = null;               // sender and time of the row above
+const GROUP_MS = 5 * 60 * 1000;      // same sender within 5 min = same turn
 function appendMessage(message) {
   const container = $("messages");
   if (message.id <= state.maxMsgId) return;
   state.maxMsgId = Math.max(state.maxMsgId, message.id);
+  const empty = container.querySelector(".thread-empty");
+  if (empty) empty.remove();
   const day = fmtDay(message.created_at);
   if (day !== threadDay || container.childElementCount === 0) {
+    threadLast = null;
     const sep = document.createElement("div");
     sep.className = "day-sep";
     const lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = day;
@@ -2448,7 +2731,52 @@ function appendMessage(message) {
     container.appendChild(sep);
     threadDay = day;
   }
-  container.appendChild(renderMessageRow(message));
+  const row = renderMessageRow(message);
+  const at = parseTS(message.created_at).getTime();
+  if (threadLast && !message.is_introduction && threadLast.sender === message.sender.id &&
+      at - threadLast.at < GROUP_MS) {
+    // A follow-up: no second avatar and name, the time on hover instead.
+    row.classList.add("cont");
+    const time = mk("span", "ctime", fmtTime(message.created_at));
+    time.title = message.created_at;
+    row.firstChild.replaceWith(time);
+  }
+  threadLast = message.is_introduction ? null : { sender: message.sender.id, at };
+  container.appendChild(row);
+}
+
+function renderThreadEmpty(chatName) {
+  const participant = isParticipant();
+  $("messages").appendChild(stateNote({
+    cls: "thread-empty", title: "No messages yet",
+    text: participant
+      ? `Nobody has written in “${chatName}” yet. Write the first message below: sending it also makes you a member.`
+      : `Nobody has written in “${chatName}” yet. New messages show up here on their own, checked every ${Math.round(pollMs() / 1000)} s.`,
+    action: participant ? "Write the first message" : null,
+    onAction: () => $("input").focus(),
+  }));
+}
+
+function renderThreadError(chatId, chatName, error) {
+  const box = $("messages");
+  box.textContent = "";
+  box.appendChild(stateNote({
+    error: true, title: "Couldn't load this chat",
+    text: `The messages of “${chatName}” didn't arrive, so there is nothing to show yet. The rest of the window keeps working.`,
+    why: error.message, action: "Try again",
+    onAction: () => openChatSafely(chatId),
+  }));
+}
+
+function showJumpPill(added) {
+  state.unseenBelow += added;
+  const pill = $("jumpPill");
+  pill.textContent = `${state.unseenBelow} new message${state.unseenBelow === 1 ? "" : "s"} ↓`;
+  pill.hidden = false;
+}
+function hideJumpPill() {
+  state.unseenBelow = 0;
+  $("jumpPill").hidden = true;
 }
 
 function isNearBottom() {
@@ -2469,26 +2797,66 @@ function markSeen() {
 }
 
 async function openChat(chatId) {
+  const ticket = ++state.openTicket;
   state.current = chatId;
   state.maxMsgId = 0;
   state.mentions = new Set();
+  state.threadReady = false;
   threadDay = null;
+  threadLast = null;
+  hideJumpPill();
+  setComposerStatus("");
   $("placeholder").hidden = true;
   $("thread").hidden = false;
   $("chatsView").classList.add("thread-open");
-  $("messages").textContent = "";
 
   const chat = state.chats.find((c) => c.id === chatId);
+  const chatName = chat ? chat.name : `chat #${chatId}`;
   $("threadName").textContent = chat ? chat.name : "";
   $("threadId").textContent = `chat #${chatId}`;
-  await loadParticipants(chatId);
-  const body = await api(`/chats/${chatId}/messages?limit=200`);
-  const ordered = body.messages.slice().reverse(); // DESC → oldest first
+  $("threadMeta").textContent = "";
+  $("threadMeta").appendChild(skelBar("180px", "skel-inline"));
+  renderChatList(); // the click lands at once: the row lights up now
+
+  $("messages").textContent = "";
+  const stop = showLoading($("messages"), messageSkeleton, {
+    what: `Messages of “${chatName}”.`, onRetry: () => openChatSafely(chatId),
+  });
+  // Participants and transcript load side by side, and fail apart.
+  const [parts, msgs] = await Promise.allSettled([
+    loadParticipants(chatId),
+    api(`/chats/${chatId}/messages?limit=200`),
+  ]);
+  stop();
+  if (ticket !== state.openTicket) return; // another chat was opened meanwhile
+  if (msgs.status === "rejected") {
+    if (msgs.reason.status === 404) throw msgs.reason;
+    renderThreadError(chatId, chatName, msgs.reason);
+    return;
+  }
+  if (parts.status === "rejected") renderParticipantsError(chatId);
+
+  $("messages").textContent = "";
+  const ordered = msgs.value.messages.slice().reverse(); // DESC → oldest first
   for (const message of ordered) appendMessage(message);
+  if (!ordered.length) renderThreadEmpty(chatName);
+  state.threadReady = true;
   markSeen();
   scrollBottom(true);
   renderChatList();
   startPollers();
+}
+
+function renderParticipantsError(chatId) {
+  const meta = $("threadMeta");
+  meta.textContent = "Couldn't load the participants. ";
+  const retry = mk("button", "btn btn-ghost", "Retry");
+  retry.style.fontSize = "12.5px";
+  retry.onclick = (event) => {
+    event.stopPropagation(); // the title row also toggles the rail
+    loadParticipants(chatId).catch(() => renderParticipantsError(chatId));
+  };
+  meta.appendChild(retry);
 }
 
 function closeCurrentChat() {
@@ -2501,15 +2869,20 @@ function closeCurrentChat() {
 }
 
 async function pollNewMessages() {
-  if (state.current == null) return;
+  // Not before the transcript is in: from after_id=0 a poll would race
+  // the first read and draw the history twice.
+  if (state.current == null || !state.threadReady) return;
+  const chatId = state.current;
   try {
     const body = await api(
-      `/chats/${state.current}/messages?after_id=${state.maxMsgId}&limit=200`);
-    if (!body.messages.length) return;
+      `/chats/${chatId}/messages?after_id=${state.maxMsgId}&limit=200`);
+    if (chatId !== state.current || !body.messages.length) return;
     const nearBottom = isNearBottom();
+    const fresh = body.messages.filter((m) => m.id > state.maxMsgId).length;
     for (const message of body.messages.slice().reverse()) appendMessage(message);
     markSeen();
     if (nearBottom) scrollBottom();
+    else if (fresh) showJumpPill(fresh);
     loadChats().catch(() => {});
     loadParticipants(state.current).catch(() => {}); // a new sender may have joined
   } catch (error) {
@@ -2527,6 +2900,7 @@ async function pollNewMessages() {
 /* --------------------------------------------------------- participants */
 async function loadParticipants(chatId) {
   const body = await api(`/chats/${chatId}/participants`);
+  if (chatId !== state.current) return; // a late answer for a chat left behind
   state.members = body.participants;
   state.participants = {};
   for (const p of body.participants) state.participants[p.id] = p;
@@ -2691,12 +3065,53 @@ function deleteCurrentFlow() {
   }).catch(() => {});
 }
 
+/* Feedback for the composer lives under the composer: that is where the
+   eyes are when Send was pressed (§10.10). */
+function setComposerStatus(text, isError) {
+  const status = $("composerStatus");
+  status.textContent = text || "";
+  status.hidden = !text;
+  status.classList.toggle("err", !!isError);
+}
+const MSG_MAX = 4000;
+function updateCharCount() {
+  const n = $("input").value.length;
+  const count = $("charCount");
+  count.hidden = n < MSG_MAX * 0.9; // only when the limit is about to matter
+  count.textContent = n >= MSG_MAX ? `${n} / ${MSG_MAX} · limit reached` : `${n} / ${MSG_MAX}`;
+  count.classList.toggle("over", n >= MSG_MAX);
+}
+let sendingTimer = null;
+function setSending(on) {
+  const btn = $("sendBtn");
+  btn.disabled = on;                       // no double send while in flight
+  btn.setAttribute("aria-busy", on ? "true" : "false");
+  clearTimeout(sendingTimer);
+  const paint = (busy) => {
+    btn.classList.toggle("busy", busy);
+    $("sendLabel").textContent = busy ? "Sending…" : "Send";
+    $("sendIcon").style.display = busy ? "none" : "";
+    const spin = btn.querySelector(".spin");
+    if (busy && !spin) btn.appendChild(mk("span", "spin"));
+    if (!busy && spin) spin.remove();
+  };
+  // Under ~300 ms a spinner only flickers: show it when the wait is real.
+  if (on) sendingTimer = setTimeout(() => paint(true), 300);
+  else paint(false);
+}
+
 async function sendMessage() {
   if (!isParticipant()) return;
   const input = $("input");
   const text = input.value.trim();
-  if (!text || state.current == null) return;
-  $("sendBtn").disabled = true;
+  if (state.current == null) return;
+  if (!text) {
+    setComposerStatus("Nothing to send yet: write a message first.");
+    input.focus();
+    return;
+  }
+  setComposerStatus("");
+  setSending(true);
   try {
     await ensureRegistered();
     const payload = {
@@ -2727,14 +3142,20 @@ async function sendMessage() {
     }
     input.value = "";
     input.style.height = "";
+    updateCharCount();
     state.mentions = new Set();
     await pollNewMessages();
     await loadParticipants(state.current);
     scrollBottom();
+    hideJumpPill();
   } catch (error) {
-    if (error.message !== "Registration cancelled.") toast(error.message, true);
+    if (error.message !== "Registration cancelled.") {
+      const reason = error.message + (/[.!?]$/.test(error.message) ? "" : ".");
+      setComposerStatus(
+        `Not sent. ${reason} Your text is still here: press Send to try again.`, true);
+    }
   } finally {
-    $("sendBtn").disabled = false;
+    setSending(false);
     input.focus();
   }
 }
@@ -3548,7 +3969,13 @@ $("input").addEventListener("input", (event) => {
   const el = event.target;
   el.style.height = "";
   el.style.height = Math.min(180, el.scrollHeight) + "px";
+  updateCharCount();
+  if (!$("composerStatus").classList.contains("err")) setComposerStatus("");
 });
+$("jumpPill").onclick = () => { scrollBottom(); hideJumpPill(); };
+$("messages").addEventListener("scroll", () => {
+  if (!$("jumpPill").hidden && isNearBottom()) hideJumpPill();
+}, { passive: true });
 
 /* --------------------------------------------------------------- start */
 renderNotifBadge();
@@ -3557,7 +3984,7 @@ setView(state.me && isParticipant() ? "inbox" : "chats");
 loadChats().then(() => {
   // Presence aggregates per-chat participants: it needs the chat list first.
   if (state.view === "inbox") loadPresence().catch(() => {});
-}).catch((error) => toast(error.message, true));
+}).catch(() => { /* said in the list itself, with a retry (§10.10) */ });
 startPollers();
 </script>
 </body>
